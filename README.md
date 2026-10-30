@@ -8,19 +8,20 @@ Il programma fa due cose:
    nome, data di nascita e se è una riserva `(R)`. L'arbitro rivede l'elenco in una tabella,
    corregge se serve e scarica il file `distinta.json`.
 2. **Compilazione di Sinfonia4You.** Partendo da `distinta.json` apre il portale, entra nella gara,
-   segna "Disputata Regolarmente", "Adeguate senza Forza Pubblica" e Ambulanza "NON Presente",
+   segna "Disputata Regolarmente" e "Adeguate senza Forza Pubblica" + Ambulanza "NON Presente"
+   (passando da una scheda all'altra con "Successivo"),
    poi nelle Liste Gara imposta numero e nominativo di ogni calciatore nella colonna della squadra.
 
 Regole della compilazione (`app/sinfonia.py`):
 
 - il nominativo si sceglie dalla tendina solo se cognome, nome e data di nascita coincidono
-  esattamente (contano lettere, accenti e apostrofi; non contano maiuscole e spazi; l'ID è
-  ignorato); con più voci identiche si prende la prima;
+  (contano lettere e apostrofi; non contano maiuscole, spazi e accenti; l'ID è ignorato);
+  con più voci identiche si prende la prima;
 - se non c'è una voce identica, anche quando ce n'è una simile, il calciatore viene creato con
   "Aggiungi persona" (cognome, nome, data di nascita);
 - documenti e capitano non vengono toccati;
-- alla fine il referto viene **salvato** (bottone "Salva…"); l'invio definitivo non viene mai
-  premuto. Il browser resta aperto per il controllo.
+- alla fine viene premuto **"Salva Tutto"**; "Invia al G.S." non viene mai premuto. Il browser
+  resta aperto per il controllo.
 
 I controlli sulla distinta (`app/checks.py`) segnalano numeri ripetuti o mancanti, nomi doppi,
 date di nascita mancanti o non valide e ogni campo letto con incertezza.

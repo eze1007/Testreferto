@@ -30,9 +30,12 @@ def test_omonimo_con_altra_data():
 
 def test_nome_simile_o_data_diversa_crea_nuovo():
     for cognome, nome, data in [("ANDREOLLI", "NICOLO", "02/02/2002"),  # una lettera diversa
-                                ("ANDREOLI", "NICOLO", "02/02/2002"),   # accento diverso
                                 ("ROSSI", "MARIO", "09/09/1999")]:      # data diversa
         assert scegli_opzione(g(1, cognome, nome, data), OPZIONI).stato == "nuovo"
+
+
+def test_accenti_non_contano():
+    assert scegli_opzione(g(1, "ANDREOLI", "NICOLO", "02/02/2002"), OPZIONI).indice == 4
 
 
 def test_maiuscole_e_spazi_non_contano():
@@ -96,8 +99,8 @@ def test_percorso_completo(page):
     assert all(r[2] == "" and r[3] == "" for r in ospite)  # documenti e capitano non toccati
     assert all(r[1] == "" for r in leggi_colonna(page, "casa"))  # squadra di casa intatta
 
-    assert s4y.salva() == "Salva Bozza"
-    assert page.evaluate("[salvato, inviato]") == [True, False]  # mai l'invio definitivo
+    assert s4y.salva() == "Salva Tutto"
+    assert page.evaluate("[salvato, salvatoScheda, inviato]") == [True, False, False]  # mai "Invia al G.S."
 
 
 def test_gara_non_trovata(page):

@@ -1,14 +1,16 @@
 """Compilazione delle Liste Gara su Sinfonia4You con Playwright.
 
 Percorso: login -> Gestione Referti -> "+" sulla gara -> Svolgimento "Disputata Regolarmente"
--> Sicurezza "Adeguate senza Forza Pubblica" + Ambulanza "NON Presente" -> Liste Gara.
+-> Successivo -> Sicurezza "Adeguate senza Forza Pubblica" + Ambulanza "NON Presente"
+-> Successivo -> Liste Gara.
 Per ogni calciatore si imposta il numero e si sceglie il nominativo dalla tendina solo se cognome,
-nome e data di nascita coincidono esattamente (a parità si prende il primo); altrimenti lo si crea
-con "Aggiungi persona". Documenti e capitano non vengono toccati. Alla fine il referto viene
-salvato; l'invio definitivo non viene mai premuto.
+nome e data di nascita coincidono (accenti esclusi; a parità si prende il primo); altrimenti lo si crea
+con "Aggiungi persona". Documenti e capitano non vengono toccati. Alla fine si preme
+"Salva Tutto"; "Invia al G.S." non viene mai premuto.
 """
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -24,8 +26,9 @@ RE_OPZIONE = re.compile(r"^(?P<nome>.+?)\s*\((?P<data>\d{2}/\d{2}/\d{4})\s*-\s*I
 
 
 def normalizza(testo: str) -> str:
-    """Solo maiuscole e spazi: ogni altra differenza (lettere, accenti, apostrofi) conta."""
-    return " ".join(testo.upper().split())
+    """Ignora maiuscole, spazi e accenti (NICOLÒ = NICOLO); ogni altra differenza conta."""
+    senza_accenti = "".join(c for c in unicodedata.normalize("NFKD", testo) if not unicodedata.combining(c))
+    return " ".join(senza_accenti.upper().split())
 
 
 @dataclass
@@ -92,7 +95,7 @@ class Sinfonia:
     def _clicca_bottone(self, parola: str) -> str:
         """Clicca il primo bottone/link/icona il cui testo, title, alt o value contiene `parola`.
 
-        Restituisce l'etichetta cliccata. Esclude sempre l'invio definitivo del referto.
+        Restituisce l'etichetta cliccata. Esclude sempre l'invio del referto ("Invia al G.S.").
         """
         etichetta = """(el) => [...new Set([el.innerText, el.title, el.alt, el.value, el.getAttribute('aria-label'),
                                 ...[...el.querySelectorAll('img')].flatMap((i) => [i.alt, i.title])]
@@ -107,13 +110,13 @@ class Sinfonia:
                 return testo
         raise RuntimeError(f"Bottone '{parola}' non trovato")
 
-    def _prosegui(self) -> None:
-        self._clicca_bottone("prosegui")
+    def _successivo(self) -> None:
+        self._clicca_bottone("successivo")
 
     def salva(self) -> str:
-        """Salva il referto (mai l'invio definitivo)."""
+        """Preme "Salva Tutto" (mai "Invia al G.S.")."""
         self.istantanea("prima-del-salvataggio")
-        etichetta = self._clicca_bottone("salva")
+        etichetta = self._clicca_bottone("salva tutto")
         self.istantanea("dopo-il-salvataggio")
         return etichetta
 
@@ -150,10 +153,10 @@ class Sinfonia:
 
     def svolgimento_e_sicurezza(self) -> None:
         self._clicca_testo("Disputata Regolarmente")
-        self._prosegui()
+        self._successivo()
         self._clicca_testo("Adeguate senza Forza Pubblica")
         self._clicca_testo("NON Presente")
-        self._prosegui()
+        self._successivo()
         self.page.get_by_text(re.compile("Lista dei Calciatori Titolari", re.I)).first.wait_for()
         self.istantanea("liste-gara")
 
