@@ -6,7 +6,7 @@ import io
 import anthropic
 from PIL import Image, ImageOps
 
-from .schema import Distinta
+from .schema import Distinta, Giocatore
 
 MODEL = "claude-opus-5-5"
 
@@ -21,7 +21,8 @@ Per ogni calciatore elencato estrai: il numero (colonna "N° del Ruolo", non il 
 stampato a margine), il cognome, il nome, la data di nascita (GG/MM/AAAA) e se è una riserva \
 (sigla "(R)" sotto o accanto al nome). Nella colonna "Cognome e nome" il cognome viene prima del \
 nome; i cognomi possono essere composti (es. "DAL CERO") e i nomi doppi (es. "MATTEO ANTONIO"). \
-Non riportare le sigle nel nome e non includere staff o dirigenti.
+Non riportare le sigle nel nome e non includere staff o dirigenti. In `testo_originale` copia \
+il contenuto della colonna "Cognome e nome" così com'è (senza sigle), prima di dividerlo.
 
 Riporta i dati esattamente come sono scritti: non correggere i nomi e non inventare valori. Se \
 una lettera o una cifra è incerta, o la divisione tra cognome e nome non è chiara, riporta la \
@@ -82,4 +83,14 @@ def estrai_distinta(dati: bytes, content_type: str, client: anthropic.Anthropic 
         raise LetturaFallita("Il modello ha rifiutato la richiesta.")
     if response.stop_reason == "max_tokens" or response.parsed_output is None:
         raise LetturaFallita("Risposta incompleta: riprova con una foto più nitida.")
-    return response.parsed_output
+    distinta = response.parsed_output
+    for g in distinta.giocatori:
+        applica_regola_due_parole(g)
+    return distinta
+
+
+def applica_regola_due_parole(g: Giocatore) -> None:
+    """La distinta stampa prima il cognome: con due sole parole la divisione è sicura."""
+    parole = g.testo_originale.split()
+    if len(parole) == 2:
+        g.cognome, g.nome = parole

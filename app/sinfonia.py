@@ -4,7 +4,8 @@ Percorso: login -> Gestione Referti -> "+" sulla gara -> Svolgimento "Disputata 
 -> Successivo -> Sicurezza "Adeguate senza Forza Pubblica" + Ambulanza "NON Presente"
 -> Successivo -> Liste Gara.
 Per ogni calciatore si imposta il numero e si sceglie il nominativo dalla tendina solo se cognome,
-nome e data di nascita coincidono (accenti esclusi; a parità si prende il primo); altrimenti lo si crea
+nome e data di nascita coincidono (non contano accenti, apostrofi, spazi e ordine; a parità si
+prende il primo); altrimenti lo si crea
 con "Aggiungi persona". Documenti e capitano non vengono toccati. Alla fine si preme
 "Salva Tutto"; "Invia al G.S." non viene mai premuto.
 """
@@ -25,10 +26,10 @@ TIMEOUT_MS = 20_000
 RE_OPZIONE = re.compile(r"^(?P<nome>.+?)\s*\((?P<data>\d{2}/\d{2}/\d{4})\s*-\s*ID\s*\d+\)\s*$")
 
 
-def normalizza(testo: str) -> str:
-    """Ignora maiuscole, spazi e accenti (NICOLÒ = NICOLO); ogni altra differenza conta."""
+def compatta(testo: str) -> str:
+    """Solo le lettere, in maiuscolo e senza accenti: NICOLO' = NICOLÒ, D'ANGELO = D ANGELO = DANGELO."""
     senza_accenti = "".join(c for c in unicodedata.normalize("NFKD", testo) if not unicodedata.combining(c))
-    return " ".join(senza_accenti.upper().split())
+    return "".join(c for c in senza_accenti.upper() if c.isalpha())
 
 
 @dataclass
@@ -39,13 +40,18 @@ class Scelta:
 
 
 def scegli_opzione(g: Giocatore, opzioni: list[str]) -> Scelta:
-    """Trova il calciatore tra le voci della tendina: cognome, nome e data devono coincidere."""
+    """Trova il calciatore tra le voci della tendina.
+
+    Data di nascita e lettere di cognome e nome devono coincidere; non contano maiuscole, spazi,
+    accenti, apostrofi e l'ordine (COGNOME NOME o NOME COGNOME). Una lettera diversa o mancante
+    vuol dire un altro giocatore.
+    """
     if not g.data_nascita:
         return Scelta("da_verificare", motivo="data di nascita mancante: impossibile cercarlo o crearlo")
-    cercato = normalizza(f"{g.cognome} {g.nome}")
+    cercati = {compatta(g.cognome + g.nome), compatta(g.nome + g.cognome)}
     for i, testo in enumerate(opzioni):
         m = RE_OPZIONE.match(testo.strip())
-        if m and normalizza(m["nome"]) == cercato and m["data"] == g.data_nascita:
+        if m and compatta(m["nome"]) in cercati and m["data"] == g.data_nascita:
             return Scelta("trovato", i)  # il primo, anche se ci sono doppioni
     return Scelta("nuovo")
 
@@ -237,7 +243,9 @@ class Sinfonia:
 
         campo("Cognome").fill(g.cognome)
         campo("Nome").fill(g.nome)
-        campo("Data di Nascita").fill(g.data_nascita or "")
+        data = campo("Data di Nascita")
+        data.clear()
+        data.press_sequentially(g.data_nascita or "", delay=50)  # digitata come a mano
         dialogo.get_by_text("Conferma", exact=True).click()
         self.page.get_by_text("Aggiungi Tesserato").first.wait_for(state="hidden")
 

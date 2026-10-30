@@ -14,7 +14,7 @@ from app.schema import Distinta, Giocatore
 
 
 def giocatore(numero, cognome="ROSSI", nome="MARIO", data="01/01/2000", dubbi=None):
-    return Giocatore(numero=numero, cognome=cognome, nome=nome, data_nascita=data,
+    return Giocatore(testo_originale=f"{cognome} {nome}", numero=numero, cognome=cognome, nome=nome, data_nascita=data,
                      riserva=numero is not None and numero > 11, dubbi=dubbi or [])
 
 
@@ -46,6 +46,24 @@ def test_avvisi_su_errori_tipici():
     assert "nome poco leggibile" in testo
     assert "ROSA LUCIA: data di nascita non valida" in testo
     assert "BLU ELSA: data di nascita mancante" in testo
+
+
+def test_regola_due_parole_e_divisione_da_verificare():
+    letti = [
+        Giocatore(testo_originale="HOXHA GANI", numero=11, cognome="GANI", nome="HOXHA",
+                  data_nascita="16/08/2002", riserva=False, dubbi=[]),
+        Giocatore(testo_originale="AMOAF OBAMFO MICHAEL", numero=5, cognome="AMOAF", nome="OBAMFO MICHAEL",
+                  data_nascita="07/08/2005", riserva=False, dubbi=[]),
+        Giocatore(testo_originale="DAL CERO ALESSANDRO", numero=18, cognome="DAL", nome="CERO",
+                  data_nascita="06/11/2004", riserva=True, dubbi=[]),
+    ]
+    risultato = estrai_distinta(b"%PDF", "application/pdf", client=FakeClient(parsed=distinta(letti)))
+    hoxha, amoaf, dal_cero = risultato.giocatori
+    assert (hoxha.cognome, hoxha.nome) == ("HOXHA", "GANI")              # due parole: la prima è il cognome
+    assert (amoaf.cognome, amoaf.nome) == ("AMOAF", "OBAMFO MICHAEL")    # tre parole: resta la lettura
+    avvisi = controlla(risultato)
+    assert any("DAL CERO" in a and "divisione cognome/nome" in a for a in avvisi)  # parola persa
+    assert not any("AMOAF" in a for a in avvisi)
 
 
 def test_distinta_vuota():
@@ -102,7 +120,7 @@ def test_api_richiede_password_e_restituisce_avvisi(monkeypatch):
     r = c.post("/api/estrai", auth=("arbitro", "segreta"),
                files={"file": ("d.jpg", jpeg_grande(), "image/jpeg")})
     assert r.status_code == 200
-    assert r.json()["distinta"]["giocatori"][0] == {"numero": 1, "cognome": "ROSSI1", "nome": "MARIO",
+    assert r.json()["distinta"]["giocatori"][0] == {"testo_originale": "ROSSI1 MARIO", "numero": 1, "cognome": "ROSSI1", "nome": "MARIO",
                                                     "data_nascita": "01/01/2000", "riserva": False, "dubbi": []}
     assert r.json()["avvisi"] == []
     r = c.post("/api/estrai", auth=("arbitro", "segreta"), files={"file": ("x.txt", b"ciao", "text/plain")})

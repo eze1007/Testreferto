@@ -13,7 +13,7 @@ from . import portale_finto
 
 
 def g(numero, cognome, nome, data, riserva=False):
-    return Giocatore(numero=numero, cognome=cognome, nome=nome, data_nascita=data, riserva=riserva, dubbi=[])
+    return Giocatore(testo_originale=f"{cognome} {nome}", numero=numero, cognome=cognome, nome=nome, data_nascita=data, riserva=riserva, dubbi=[])
 
 
 OPZIONI = ["", "ROSSI MARIO (01/01/2000 - ID 111)", "ROSSI MARIO (01/01/2000 - ID 222)",
@@ -36,6 +36,21 @@ def test_nome_simile_o_data_diversa_crea_nuovo():
 
 def test_accenti_non_contano():
     assert scegli_opzione(g(1, "ANDREOLI", "NICOLO", "02/02/2002"), OPZIONI).indice == 4
+
+
+def test_ordine_apostrofi_e_spazi_non_contano():
+    opzioni = ["", "NICOLA CUNEGATTI (06/02/2003 - ID 1)", "D'ANGELO MARCO (01/01/2001 - ID 2)",
+               "DALCERO ALESSANDRO (06/11/2004 - ID 3)", "ANDREOLLI NICOLO' (04/04/2009 - ID 4)"]
+    assert scegli_opzione(g(1, "CUNEGATTI", "NICOLA", "06/02/2003"), opzioni).indice == 1  # ordine invertito
+    assert scegli_opzione(g(1, "D ANGELO", "MARCO", "01/01/2001"), opzioni).indice == 2    # apostrofo
+    assert scegli_opzione(g(1, "DANGELO", "MARCO", "01/01/2001"), opzioni).indice == 2
+    assert scegli_opzione(g(1, "DAL CERO", "ALESSANDRO", "06/11/2004"), opzioni).indice == 3  # spazio
+    assert scegli_opzione(g(1, "ANDREOLLI", "NICOLÒ", "04/04/2009"), opzioni).indice == 4  # accento come apostrofo
+
+
+def test_lettera_mancante_e_un_altro_giocatore():
+    opzioni = ["CUNEGATI NICOLA (06/02/2003 - ID 1)", "CUNEGATTI NICOL (06/02/2003 - ID 2)"]
+    assert scegli_opzione(g(1, "CUNEGATTI", "NICOLA", "06/02/2003"), opzioni).stato == "nuovo"
 
 
 def test_maiuscole_e_spazi_non_contano():

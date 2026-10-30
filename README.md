@@ -15,13 +15,19 @@ Il programma fa due cose:
 Regole della compilazione (`app/sinfonia.py`):
 
 - il nominativo si sceglie dalla tendina solo se cognome, nome e data di nascita coincidono
-  (contano lettere e apostrofi; non contano maiuscole, spazi e accenti; l'ID è ignorato);
-  con più voci identiche si prende la prima;
+  nelle lettere (non contano maiuscole, spazi, accenti, apostrofi e l'ordine COGNOME NOME /
+  NOME COGNOME; l'ID è ignorato); una lettera diversa o mancante è un altro giocatore; con più
+  voci identiche si prende la prima;
 - se non c'è una voce identica, anche quando ce n'è una simile, il calciatore viene creato con
   "Aggiungi persona" (cognome, nome, data di nascita);
+- la data di nascita viene digitata a mano nel campo; il sesso resta MASCHILE (predefinito);
 - documenti e capitano non vengono toccati;
 - alla fine viene premuto **"Salva Tutto"**; "Invia al G.S." non viene mai premuto. Il browser
   resta aperto per il controllo.
+
+La distinta stampa prima il cognome: se la colonna "Cognome e nome" ha due parole, la prima è il
+cognome e la seconda il nome. Con tre o più parole vale la lettura del modello, e se cognome +
+nome non ricompongono il testo stampato il giocatore viene segnalato.
 
 I controlli sulla distinta (`app/checks.py`) segnalano numeri ripetuti o mancanti, nomi doppi,
 date di nascita mancanti o non valide e ogni campo letto con incertezza.
