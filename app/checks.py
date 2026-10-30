@@ -12,6 +12,8 @@ def controlla(distinta: Distinta) -> list[str]:
         return ["Nessun giocatore letto: controlla la foto."]
 
     avvisi: list[str] = []
+    if len(giocatori) < 11:
+        avvisi.append(f"Solo {len(giocatori)} giocatori letti: i titolari dovrebbero essere 11.")
     numeri = Counter(g.numero for g in giocatori if g.numero is not None)
     for numero, volte in sorted(numeri.items()):
         if volte > 1:

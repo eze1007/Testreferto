@@ -123,3 +123,19 @@ def test_gara_non_trovata(page):
     s4y.login("arbitro123", "segreta")
     with pytest.raises(RuntimeError, match="Gare trovate"):
         s4y.apri_gara("JUVENTUS")
+
+
+def test_numeri_alti_tra_i_titolari(page):
+    s4y = Sinfonia(page)
+    s4y.login("arbitro123", "segreta")
+    s4y.apri_gara("sarego liona")
+    s4y.svolgimento_e_sicurezza()
+    nomi = ["UNO", "DUE", "SEDICI", "QUATTRO", "CINQUE", "SEI", "SETTE", "OTTO", "NOVE", "DIECI", "TREDICI"]
+    titolari = [g(n, "TITOLARE", nome, "01/01/2000") for n, nome in zip((1, 2, 16, 4, 5, 6, 7, 8, 9, 10, 13), nomi)]
+    riserve = [g(3, "RISERVA", "TRE", "01/01/2000", riserva=True)]
+    report = s4y.compila_lista(titolari + riserve, "casa")
+    assert {e.stato for e in report.esiti} == {"aggiunto"}
+    casa = leggi_colonna(page, "casa")
+    assert [r[0] for r in casa[:11]] == ["1", "2", "16", "4", "5", "6", "7", "8", "9", "10", "13"]
+    assert casa[2][1].startswith("TITOLARE SEDICI")                      # il 16 è nelle righe dei titolari
+    assert casa[11][:2] == ["3", "RISERVA TRE (01/01/2000 - ID 911)"]   # il 3 è la prima riserva
