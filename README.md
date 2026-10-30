@@ -4,13 +4,15 @@ Agente per ridurre il lavoro manuale nella compilazione del referto arbitrale su
 
 Il programma fa due cose:
 
-1. **Lettura della distinta.** Da una foto o un PDF estrae, per ogni calciatore, numero, cognome,
-   nome, data di nascita e se è una riserva `(R)`. L'arbitro rivede l'elenco in una tabella,
-   corregge se serve e scarica il file `distinta.json`.
-2. **Compilazione di Sinfonia4You.** Partendo da `distinta.json` apre il portale, entra nella gara,
+1. **Lettura delle distinte.** Nella pagina web si carica la foto o il PDF della distinta della
+   squadra di casa (a sinistra) e di quella ospite (a destra), poi **Prosegui**. Per ogni
+   calciatore vengono estratti numero, cognome, nome, data di nascita e se è una riserva `(R)`,
+   mostrati in due tabelle (titolari e riserve) correggibili a mano. "Scarica JSON" salva
+   `liste_gara.json` con entrambe le squadre.
+2. **Compilazione di Sinfonia4You.** Partendo da `liste_gara.json` apre il portale, entra nella gara,
    segna "Disputata Regolarmente" e "Adeguate senza Forza Pubblica" + Ambulanza "NON Presente"
    (passando da una scheda all'altra con "Successivo"),
-   poi nelle Liste Gara imposta numero e nominativo di ogni calciatore nella colonna della squadra.
+   poi nelle Liste Gara imposta numero e nominativo di ogni calciatore in entrambe le colonne.
 
 Regole della compilazione (`app/sinfonia.py`):
 
@@ -51,11 +53,11 @@ Prova dal terminale senza pannello:
 python -m scripts.prova_lettura percorso/distinta.jpg
 ```
 
-Compilazione di Sinfonia4You (browser visibile; `--lato` è la squadra della distinta):
+Compilazione di Sinfonia4You (browser visibile):
 
 ```bash
 playwright install chromium
-python -m scripts.compila_sinfonia distinta.json --gara "SAREGO LIONA" --lato ospite
+python -m scripts.compila_sinfonia liste_gara.json --gara "SAREGO LIONA"
 ```
 
 `--gara` sono parole che identificano una sola riga nella lista di Gestione Referti. A ogni passo
