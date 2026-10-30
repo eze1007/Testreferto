@@ -1,0 +1,11 @@
+.env
+__pycache__/
+.pytest_cache/
+.venv/
+# Distinte reali: contengono dati personali, non vanno nel repository
+distinte/
+*.jpg
+*.jpeg
+*.png
+*.heic
+*.pdf

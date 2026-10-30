@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lettura distinta</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1c1f24; --muted:#5f6670; --line:#dde1e6;
+          --accent:#1f5fbf; --warn-bg:#fff4dc; --warn:#7a5200; --res:#eef2f7; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14171b; --card:#1d2126; --text:#e6e8eb; --muted:#9aa2ac; --line:#30363d;
+            --accent:#6ea3ff; --warn-bg:#3a2e12; --warn:#f3cf7a; --res:#232a33; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  main { max-width:1100px; margin:0 auto; padding:16px; }
+  h1 { font-size:20px; margin:0 0 12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:14px; }
+  button { font:inherit; padding:10px 16px; border-radius:8px; border:0; background:var(--accent); color:#fff; cursor:pointer; }
+  button:disabled { opacity:.5; }
+  button.secondary { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+  input[type=file] { width:100%; margin-bottom:10px; }
+  .meta { color:var(--muted); font-size:14px; }
+  .avvisi { background:var(--warn-bg); color:var(--warn); border-radius:8px; padding:10px 14px; }
+  .avvisi ul { margin:6px 0 0; padding-left:18px; }
+  .scroll { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; min-width:760px; }
+  th, td { border-bottom:1px solid var(--line); padding:4px 6px; text-align:left; }
+  th { font-size:13px; color:var(--muted); font-weight:600; }
+  tr.riserva { background:var(--res); }
+  td input, td select { width:100%; font:inherit; background:transparent; color:inherit; border:1px solid transparent; border-radius:4px; padding:3px 4px; }
+  td input:focus, td select:focus { border-color:var(--accent); outline:none; }
+  td.dubbio input { border-color:var(--warn); }
+  .azioni { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+  #stato { margin-top:8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Lettura distinta di gara</h1>
+
+  <div class="card">
+    <input type="file" id="file" accept="image/*,application/pdf" capture="environment">
+    <button id="leggi">Leggi distinta</button>
+    <div id="stato" class="meta"></div>
+  </div>
+
+  <div id="risultato" hidden>
+    <div class="card">
+      <div id="intestazione"></div>
+    </div>
+    <div class="card avvisi" id="box-avvisi" hidden><strong>Da controllare</strong><ul id="avvisi"></ul></div>
+    <div class="card">
+      <div class="scroll"><table>
+        <thead><tr><th>Riga</th><th>N°</th><th>Cognome e nome</th><th>Nascita</th><th>Matricola</th>
+          <th>Ruolo</th><th>P</th><th>Cap.</th><th>Documento</th></tr></thead>
+        <tbody id="righe"></tbody>
+      </table></div>
+      <div class="azioni">
+        <button id="scarica">Scarica JSON corretto</button>
+        <button class="secondary" id="copia">Copia elenco</button>
+      </div>
+    </div>
+    <div class="card" id="box-staff" hidden><strong>Staff</strong><ul id="staff"></ul></div>
+  </div>
+</main>
+<script>
+let distinta = null;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+$("leggi").onclick = async () => {
+  const f = $("file").files[0];
+  if (!f) { $("stato").textContent = "Scegli prima una foto o un PDF."; return; }
+  $("leggi").disabled = true;
+  $("stato").textContent = "Lettura in corso, può richiedere fino a un minuto…";
+  const fd = new FormData(); fd.append("file", f);
+  try {
+    const r = await fetch("/api/estrai", { method: "POST", body: fd });
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.detail || r.statusText);
+    distinta = body.distinta;
+    mostra(body.avvisi);
+    $("stato").textContent = "Fatto. Controlla e correggi i dati evidenziati.";
+  } catch (e) {
+    $("stato").textContent = "Errore: " + e.message;
+  } finally {
+    $("leggi").disabled = false;
+  }
+};
+
+function mostra(avvisi) {
+  $("risultato").hidden = false;
+  $("intestazione").innerHTML =
+    `<strong>${esc(distinta.squadra)}</strong>
+     <div class="meta">${esc(distinta.gara)}<br>${esc(distinta.campionato)} · ${esc(distinta.data_ora)}<br>
+     ${esc(distinta.campo)}${distinta.numero_distinta ? " · Distinta n° " + esc(distinta.numero_distinta) : ""}</div>`;
+  $("box-avvisi").hidden = !avvisi.length;
+  $("avvisi").innerHTML = avvisi.map((a) => `<li>${esc(a)}</li>`).join("");
+  $("righe").innerHTML = distinta.giocatori.map((g, i) => {
+    const d = g.dubbi.length ? ' class="dubbio"' : "";
+    return `<tr class="${g.ruolo}" title="${esc(g.dubbi.join("; "))}">
+      <td>${g.riga}</td>
+      <td${d}><input data-i="${i}" data-k="numero_maglia" value="${esc(g.numero_maglia)}" inputmode="numeric" size="2"></td>
+      <td${d}><input data-i="${i}" data-k="cognome_nome" value="${esc(g.cognome_nome)}"></td>
+      <td${d}><input data-i="${i}" data-k="data_nascita" value="${esc(g.data_nascita)}" size="10"></td>
+      <td${d}><input data-i="${i}" data-k="matricola_figc" value="${esc(g.matricola_figc)}" size="8"></td>
+      <td><select data-i="${i}" data-k="ruolo">
+        <option value="titolare"${g.ruolo === "titolare" ? " selected" : ""}>Titolare</option>
+        <option value="riserva"${g.ruolo === "riserva" ? " selected" : ""}>Riserva</option></select></td>
+      <td><input type="checkbox" data-i="${i}" data-k="portiere"${g.portiere ? " checked" : ""}></td>
+      <td><select data-i="${i}" data-k="capitano">
+        <option value=""></option>
+        <option value="C"${g.capitano === "C" ? " selected" : ""}>C</option>
+        <option value="V"${g.capitano === "V" ? " selected" : ""}>V</option></select></td>
+      <td class="meta">${esc(g.documento_tipo)} ${esc(g.documento_numero)}</td>
+    </tr>`;
+  }).join("");
+  $("box-staff").hidden = !distinta.staff.length;
+  $("staff").innerHTML = distinta.staff.map((p) =>
+    `<li>${esc(p.ruolo)}: <strong>${esc(p.cognome_nome)}</strong>${p.data_nascita ? " (" + esc(p.data_nascita) + ")" : ""}</li>`).join("");
+}
+
+$("righe").addEventListener("change", (e) => {
+  const el = e.target, g = distinta.giocatori[el.dataset.i], k = el.dataset.k;
+  if (k === "portiere") g.portiere = el.checked;
+  else if (k === "numero_maglia") g.numero_maglia = el.value === "" ? null : Number(el.value);
+  else if (k === "capitano") g.capitano = el.value || null;
+  else g[k] = el.value || null;
+  if (k === "ruolo") el.closest("tr").className = el.value;
+});
+
+$("scarica").onclick = () => {
+  const blob = new Blob([JSON.stringify(distinta, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `distinta-${distinta.numero_distinta || "gara"}.json`;
+  a.click();
+};
+
+$("copia").onclick = async () => {
+  const riga = (g) => `${g.numero_maglia ?? "?"} ${g.cognome_nome}${g.portiere ? " (P)" : ""}${g.capitano ? " [" + g.capitano + "]" : ""}`;
+  const tit = distinta.giocatori.filter((g) => g.ruolo === "titolare").map(riga);
+  const ris = distinta.giocatori.filter((g) => g.ruolo === "riserva").map(riga);
+  await navigator.clipboard.writeText(`${distinta.squadra}\n\nTITOLARI\n${tit.join("\n")}\n\nRISERVE\n${ris.join("\n")}`);
+  $("stato").textContent = "Elenco copiato.";
+};
+</script>
+</body>
+</html>
