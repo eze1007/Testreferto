@@ -40,11 +40,21 @@ def _schede(attiva: str) -> str:
         f'<a class="{"on" if n == attiva else ""}">{n}</a>' for n in nomi) + "</div>"
 
 
-LOGIN = """<div class="box"><div class="titolo">Credenziali di Accesso</div>
+_SVUOTA = ("onfocus=\"if(this.value==this.defaultValue){this.value='';}\" "
+           "onblur=\"if(this.value==''){this.value=this.defaultValue;}\"")
+
+LOGIN = f"""<div class="box"><div class="titolo">Credenziali di Accesso</div>
 <form method="POST" action="default.asp?action=accesso_sistema">
-UTENTE <input type="text" name="username" id="username" value="USERNAME"><br>
-PASSWORD <input type="password" name="password" id="password" value="PASSWORD"><br>
-<input type="submit" value="ACCEDI AL SISTEMA"></form></div>"""
+UTENTE <input type="text" name="username" id="username" value="USERNAME" {_SVUOTA}><br>
+PASSWORD <input type="password" name="password" id="password" value="PASSWORD" {_SVUOTA}><br>
+<input type="submit" value="ACCEDI AL SISTEMA"></form></div>
+<!-- Finestra modale come quella di jQuery UI: copre la pagina finché non si preme Ok -->
+<div id="velo" style="position:fixed;inset:0;background:#0006"></div>
+<div class="ui-dialog" style="position:fixed;top:120px;left:300px;width:500px;background:#fff;padding:10px">
+  <div class="titolo">Benvenuto in Sinfonia4You</div><p>Per accedere ed operare sul sistema digita…</p>
+  <div class="ui-dialog-buttonpane"><button type="button"
+    onclick="document.getElementById('velo').remove(); this.closest('.ui-dialog').remove()">Ok</button></div>
+</div>"""
 
 HOME = """<div class="box"><div class="titolo">Benvenuto su Sinfonia4You</div>
 <a href="gestione_referti.asp">Gestione Referti</a></div>"""
@@ -123,9 +133,13 @@ PAGINE = {
 }
 
 
-def installa(page: Page) -> None:
+def installa(page: Page, captcha: bool = False) -> None:
     def gestisci(route: Route) -> None:
         percorso = route.request.url.removeprefix(BASE)
+        if captcha and percorso == "":
+            campo = '<input type="text" name="captcha" class="validate[required,custom[S4YCaptcha]]">'
+            return route.fulfill(body=f"<html><body>{LOGIN.replace('</form>', campo + '</form>')}</body></html>",
+                                 content_type="text/html")
         if route.request.method == "POST" and percorso.startswith("default.asp"):
             if "password=segreta" not in (route.request.post_data or ""):
                 return route.fulfill(body=LOGIN, content_type="text/html")
