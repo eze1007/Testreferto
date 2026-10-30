@@ -44,9 +44,11 @@ date di nascita mancanti o non valide e ogni campo letto con incertezza.
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # chiave API, utente/password del pannello e credenziali Sinfonia4You
-set -a && source .env && set +a
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
+
+Il file `.env` viene letto automaticamente all'avvio (anche su Windows: basta copiare
+`.env.example` in `.env` e compilarlo).
 
 Apri `http://<indirizzo-server>:8000` dal telefono. Il pannello è protetto da utente e password
 (`APP_USER` / `APP_PASSWORD`); su una VPS va messo dietro HTTPS (es. Caddy o Nginx).
