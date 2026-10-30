@@ -102,6 +102,7 @@ def _esegui(lavoro: Lavoro, squadre: dict[str, Distinta], gara: str, utente: str
     try:
         r = compilazione.compila(
             squadre, gara, utente, password,
+            headless=os.environ.get("BROWSER_VISIBILE") != "1",  # 1 = si vede il browser (prove sul PC)
             avanzamento=lavoro.messaggi.append,
             al_giocatore=lambda lato, e: lavoro.esiti[lato].append(_esito(e)),
             prepara_pagina=PREPARA_PAGINA,
