@@ -2,16 +2,14 @@
 
 Percorso: login -> Gestione Referti -> "+" sulla gara -> Svolgimento "Disputata Regolarmente"
 -> Sicurezza "Adeguate senza Forza Pubblica" + Ambulanza "NON Presente" -> Liste Gara.
-Per ogni calciatore si imposta il numero e si sceglie il nominativo dalla tendina (cognome, nome
-e data di nascita; a parità si prende il primo). Se non c'è, lo si aggiunge con "Aggiungi persona".
-Documenti e capitano non vengono toccati e il referto non viene mai salvato né inviato:
-il controllo e il salvataggio restano all'arbitro.
+Per ogni calciatore si imposta il numero e si sceglie il nominativo dalla tendina solo se cognome,
+nome e data di nascita coincidono esattamente (a parità si prende il primo); altrimenti lo si crea
+con "Aggiungi persona". Documenti e capitano non vengono toccati. Alla fine il referto viene
+salvato; l'invio definitivo non viene mai premuto.
 """
 
 import re
-import unicodedata
 from dataclasses import dataclass, field
-from difflib import SequenceMatcher
 from pathlib import Path
 
 from playwright.sync_api import Locator, Page
@@ -26,8 +24,8 @@ RE_OPZIONE = re.compile(r"^(?P<nome>.+?)\s*\((?P<data>\d{2}/\d{2}/\d{4})\s*-\s*I
 
 
 def normalizza(testo: str) -> str:
-    testo = unicodedata.normalize("NFKD", testo).encode("ascii", "ignore").decode()
-    return " ".join("".join(c if c.isalnum() else " " for c in testo.upper()).split())
+    """Solo maiuscole e spazi: ogni altra differenza (lettere, accenti, apostrofi) conta."""
+    return " ".join(testo.upper().split())
 
 
 @dataclass
@@ -38,24 +36,14 @@ class Scelta:
 
 
 def scegli_opzione(g: Giocatore, opzioni: list[str]) -> Scelta:
-    """Trova il calciatore tra le voci della tendina."""
+    """Trova il calciatore tra le voci della tendina: cognome, nome e data devono coincidere."""
     if not g.data_nascita:
-        return Scelta("da_verificare", motivo="data di nascita mancante")
+        return Scelta("da_verificare", motivo="data di nascita mancante: impossibile cercarlo o crearlo")
     cercato = normalizza(f"{g.cognome} {g.nome}")
-    simili = []
     for i, testo in enumerate(opzioni):
         m = RE_OPZIONE.match(testo.strip())
-        if not m:
-            continue
-        nome = normalizza(m["nome"])
-        if nome == cercato and m["data"] == g.data_nascita:
+        if m and normalizza(m["nome"]) == cercato and m["data"] == g.data_nascita:
             return Scelta("trovato", i)  # il primo, anche se ci sono doppioni
-        stessa_data = m["data"] == g.data_nascita
-        if nome == cercato or (stessa_data and SequenceMatcher(None, nome, cercato).ratio() >= 0.85):
-            simili.append(testo.strip())
-    if simili:
-        # Probabile errore di lettura o di data: meglio non creare un doppione nell'archivio.
-        return Scelta("da_verificare", motivo="voci simili: " + "; ".join(simili[:3]))
     return Scelta("nuovo")
 
 
@@ -101,19 +89,33 @@ class Sinfonia:
         self.page.get_by_text(testo, exact=True).first.click()
         self.page.wait_for_load_state()
 
-    def _prosegui(self) -> None:
-        candidati = [
-            self.page.get_by_role("button", name=re.compile("prosegui", re.I)),
-            self.page.get_by_role("link", name=re.compile("prosegui", re.I)),
-            self.page.locator("[title*='rosegui' i], [alt*='rosegui' i], input[value*='rosegui' i]"),
-            self.page.get_by_text(re.compile(r"^\s*prosegui\s*$", re.I)),
-        ]
-        for loc in candidati:
-            if loc.count():
-                loc.first.click()
+    def _clicca_bottone(self, parola: str) -> str:
+        """Clicca il primo bottone/link/icona il cui testo, title, alt o value contiene `parola`.
+
+        Restituisce l'etichetta cliccata. Esclude sempre l'invio definitivo del referto.
+        """
+        etichetta = """(el) => [...new Set([el.innerText, el.title, el.alt, el.value, el.getAttribute('aria-label'),
+                                ...[...el.querySelectorAll('img')].flatMap((i) => [i.alt, i.title])]
+                               .map((t) => (t || '').trim()).filter(Boolean))].join(' ')"""
+        elementi = self.page.locator("a:visible, button:visible, input:visible, img:visible")
+        for i in range(elementi.count()):
+            el = elementi.nth(i)
+            testo = el.evaluate(etichetta)
+            if parola in testo.lower() and not re.search(r"invi|definitiv", testo, re.I):
+                el.click()
                 self.page.wait_for_load_state()
-                return
-        raise RuntimeError("Bottone 'Prosegui' non trovato")
+                return testo
+        raise RuntimeError(f"Bottone '{parola}' non trovato")
+
+    def _prosegui(self) -> None:
+        self._clicca_bottone("prosegui")
+
+    def salva(self) -> str:
+        """Salva il referto (mai l'invio definitivo)."""
+        self.istantanea("prima-del-salvataggio")
+        etichetta = self._clicca_bottone("salva")
+        self.istantanea("dopo-il-salvataggio")
+        return etichetta
 
     # --- navigazione ---------------------------------------------------------------------
 
@@ -129,12 +131,16 @@ class Sinfonia:
 
     def apri_gara(self, gara: str) -> None:
         self._clicca_testo("Gestione Referti")
-        parole = normalizza(gara).split()
+        def parole(testo: str) -> list[str]:
+            return re.sub(r"[^A-Z0-9]+", " ", testo.upper()).split()
+
+        cercate = parole(gara)
         righe = self.page.locator("tr:not(:has(tr))")
-        trovate = [
-            righe.nth(i) for i in range(righe.count())
-            if all(p in normalizza(righe.nth(i).inner_text()) for p in parole)
-        ]
+        trovate = []
+        for i in range(righe.count()):
+            testo = " ".join(parole(righe.nth(i).inner_text()))
+            if all(p in testo for p in cercate):
+                trovate.append(righe.nth(i))
         if len(trovate) != 1:
             self.istantanea("lista-gare")
             raise RuntimeError(f"Gare trovate per '{gara}': {len(trovate)} (serve esattamente 1)")

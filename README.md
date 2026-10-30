@@ -13,14 +13,14 @@ Il programma fa due cose:
 
 Regole della compilazione (`app/sinfonia.py`):
 
-- il nominativo si sceglie dalla tendina confrontando cognome, nome e data di nascita (l'ID non
-  conta); con più voci identiche si prende la prima;
-- se il calciatore non c'è, si aggiunge con "Aggiungi persona" (cognome, nome, data di nascita);
-- se c'è una voce *simile* ma non identica (es. una lettera diversa) la riga resta vuota e viene
-  segnalata, per non creare doppioni nell'archivio per un errore di lettura;
+- il nominativo si sceglie dalla tendina solo se cognome, nome e data di nascita coincidono
+  esattamente (contano lettere, accenti e apostrofi; non contano maiuscole e spazi; l'ID è
+  ignorato); con più voci identiche si prende la prima;
+- se non c'è una voce identica, anche quando ce n'è una simile, il calciatore viene creato con
+  "Aggiungi persona" (cognome, nome, data di nascita);
 - documenti e capitano non vengono toccati;
-- **il referto non viene mai salvato né inviato**: alla fine il browser resta aperto e l'arbitro
-  controlla e salva a mano.
+- alla fine il referto viene **salvato** (bottone "Salva…"); l'invio definitivo non viene mai
+  premuto. Il browser resta aperto per il controllo.
 
 I controlli sulla distinta (`app/checks.py`) segnalano numeri ripetuti o mancanti, nomi doppi,
 date di nascita mancanti o non valide e ogni campo letto con incertezza.

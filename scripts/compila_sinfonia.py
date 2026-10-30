@@ -3,8 +3,8 @@
 Uso:
   python -m scripts.compila_sinfonia distinta.json --gara "SAN GIOVANNI ILARIONE" --lato ospite
 
-Il browser si apre visibile. Alla fine il programma si ferma senza salvare: controlli tu
-la pagina e salvi a mano. Credenziali da SINFONIA_USER / SINFONIA_PASSWORD (file .env),
+Il browser si apre visibile. Alla fine il referto viene salvato (mai inviato definitivamente)
+e il browser resta aperto per il controllo. Credenziali da SINFONIA_USER / SINFONIA_PASSWORD (file .env),
 altrimenti vengono chieste a terminale.
 """
 
@@ -44,6 +44,7 @@ def main() -> None:
             s4y.apri_gara(args.gara)
             s4y.svolgimento_e_sicurezza()
             report = s4y.compila_lista(distinta.giocatori, args.lato)
+            salvato = s4y.salva()
         except Exception:
             s4y.istantanea("errore")
             print(f"\nErrore. Screenshot e pagine salvati in {debug}/")
@@ -58,7 +59,7 @@ def main() -> None:
                   f"{' (R)' if g.riserva else ''}  {e.dettaglio}")
         for a in report.avvisi:
             print("ATTENZIONE:", a)
-        print("\nNulla è stato salvato. Controlla la pagina nel browser e salva tu.")
+        print(f"\nReferto salvato (bottone: {salvato}). Controlla la pagina nel browser.")
         if not args.headless:
             input("Premi Invio per chiudere il browser… ")
         browser.close()

@@ -28,17 +28,15 @@ def test_omonimo_con_altra_data():
     assert scegli_opzione(g(1, "ROSSI", "MARIO", "05/05/1990"), OPZIONI).indice == 3
 
 
-def test_accenti_ignorati():
-    assert scegli_opzione(g(1, "ANDREOLI", "NICOLO", "02/02/2002"), OPZIONI).stato == "trovato"
+def test_nome_simile_o_data_diversa_crea_nuovo():
+    for cognome, nome, data in [("ANDREOLLI", "NICOLO", "02/02/2002"),  # una lettera diversa
+                                ("ANDREOLI", "NICOLO", "02/02/2002"),   # accento diverso
+                                ("ROSSI", "MARIO", "09/09/1999")]:      # data diversa
+        assert scegli_opzione(g(1, cognome, nome, data), OPZIONI).stato == "nuovo"
 
 
-def test_nome_simile_non_crea_doppioni():
-    s = scegli_opzione(g(1, "ANDREOLLI", "NICOLO", "02/02/2002"), OPZIONI)
-    assert s.stato == "da_verificare" and "ANDREOLI" in s.motivo
-
-
-def test_stesso_nome_data_diversa_da_verificare():
-    assert scegli_opzione(g(1, "ROSSI", "MARIO", "09/09/1999"), OPZIONI).stato == "da_verificare"
+def test_maiuscole_e_spazi_non_contano():
+    assert scegli_opzione(g(1, "rossi ", " mario", "01/01/2000"), OPZIONI).indice == 1
 
 
 def test_giocatore_nuovo_e_data_mancante():
@@ -81,22 +79,25 @@ def test_percorso_completo(page):
         g(7, "ROSSI", "MARIO", "01/01/2000"),
         g(9, "DAL CERO", "ALESSANDRO", "06/11/2004"),
         g(10, "NERI", "PAOLO", "03/03/2003"),            # non in archivio: va aggiunto
-        g(11, "BIANCHI", "LUCAS", "02/02/2001"),         # simile a BIANCHI LUCA: da verificare
+        g(11, "BIANCHI", "LUCAS", "02/02/2001"),         # simile a BIANCHI LUCA: va creato
         g(14, "VERDI", "ANNA", "03/03/2003", riserva=True),
     ]
     report = s4y.compila_lista(giocatori, "ospite")
 
-    assert [e.stato for e in report.esiti] == ["selezionato", "selezionato", "aggiunto", "da_verificare", "selezionato"]
+    assert [e.stato for e in report.esiti] == ["selezionato", "selezionato", "aggiunto", "aggiunto", "selezionato"]
     assert report.avvisi == []
 
     ospite = leggi_colonna(page, "ospite")
     assert ospite[0][:2] == ["7", "ROSSI MARIO (01/01/2000 - ID 111)"]
     assert ospite[1][:2] == ["9", "DAL CERO ALESSANDRO (06/11/2004 - ID 444)"]
     assert ospite[2][:2] == ["10", "NERI PAOLO (03/03/2003 - ID 900)"]
-    assert ospite[3][1] == ""                            # lasciato vuoto per l'arbitro
+    assert ospite[3][:2] == ["11", "BIANCHI LUCAS (02/02/2001 - ID 901)"]
     assert ospite[11][:2] == ["14", "VERDI ANNA (03/03/2003 - ID 555)"]  # prima riga riserve
     assert all(r[2] == "" and r[3] == "" for r in ospite)  # documenti e capitano non toccati
     assert all(r[1] == "" for r in leggi_colonna(page, "casa"))  # squadra di casa intatta
+
+    assert s4y.salva() == "Salva Bozza"
+    assert page.evaluate("[salvato, inviato]") == [True, False]  # mai l'invio definitivo
 
 
 def test_gara_non_trovata(page):

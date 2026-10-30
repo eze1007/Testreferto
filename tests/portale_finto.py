@@ -52,6 +52,8 @@ def _colonna(lato: str) -> str:
 LISTE = f"""<table style="width:1000px"><tr>
 <td style="width:500px;vertical-align:top">{_colonna('casa')}</td>
 <td style="width:500px;vertical-align:top">{_colonna('ospite')}</td></tr></table>
+<a href="#" title="Salva e Invio Definitivo" onclick="inviato = true"><img alt="Salva e Invio Definitivo"></a>
+<a href="#" title="Salva Bozza" onclick="salvato = true"><img alt="Salva Bozza"></a>
 <div id="dlg" style="display:none;position:absolute;top:100px;left:200px;background:#fff">
   <div>Aggiungi Tesserato</div>
   <table><tr><td>Matricola:</td><td><input id="m"></td></tr>
@@ -61,7 +63,7 @@ LISTE = f"""<table style="width:1000px"><tr>
   <button onclick="conferma()">Conferma</button> <button>Annulla</button>
 </div>
 <script>
-let lato = null, nuovi = 900;
+let lato = null, nuovi = 900, salvato = false, inviato = false;
 function apri(l) {{ lato = l; document.getElementById('dlg').style.display = 'block'; }}
 function conferma() {{
   const v = (id) => document.getElementById(id).value;
