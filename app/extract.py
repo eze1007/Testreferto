@@ -17,15 +17,14 @@ MAX_BYTES = 4_500_000
 SYSTEM_PROMPT = """Leggi distinte di gara del calcio dilettantistico italiano (F.I.G.C. - L.N.D.) \
 fotografate o scansionate da un arbitro.
 
-Una distinta elenca i calciatori di una sola squadra. Per ogni riga compilata riporta i dati \
-esattamente come sono scritti: non correggere i nomi e non inventare valori. Se un campo è \
-illeggibile mettilo a null e spiegalo in `dubbi`; se una lettera o una cifra è incerta, riporta \
-la lettura più probabile e segnala il dubbio. Ignora le righe vuote.
+Per ogni calciatore elencato estrai solo tre dati: il numero (colonna "N° del Ruolo", non il \
+numero di riga stampato a margine), il cognome e il nome. Nella colonna "Cognome e nome" il \
+cognome viene prima del nome; i cognomi possono essere composti (es. "DAL CERO") e i nomi doppi \
+(es. "MATTEO ANTONIO"). Non riportare le sigle (R), (P) e non includere staff o dirigenti.
 
-Le sigle accanto al nome hanno questo significato: (R) riserva, (P) portiere, (Tess.) tesseramento \
-in corso. Un giocatore senza (R) è titolare. Nella colonna Capitano/V.Cap. "C" indica il capitano e \
-"V" il vice capitano. Segni a penna nelle colonne Espulsi/Ammoniti non fanno parte della distinta: \
-ignorali."""
+Riporta i dati esattamente come sono scritti: non correggere i nomi e non inventare valori. Se \
+una lettera o una cifra è incerta, o la divisione tra cognome e nome non è chiara, riporta la \
+lettura più probabile e segnala il dubbio. Ignora le righe vuote e i segni a penna."""
 
 
 def _prepara_immagine(dati: bytes) -> tuple[bytes, str]:
@@ -73,7 +72,7 @@ def estrai_distinta(dati: bytes, content_type: str, client: anthropic.Anthropic 
             "role": "user",
             "content": [
                 _blocco_file(dati, content_type),
-                {"type": "text", "text": "Estrai tutti i dati di questa distinta."},
+                {"type": "text", "text": "Estrai numero, cognome e nome di ogni calciatore."},
             ],
         }],
         output_format=Distinta,

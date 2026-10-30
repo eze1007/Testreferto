@@ -10,24 +10,17 @@ from PIL import Image
 from app import main
 from app.checks import controlla
 from app.extract import LetturaFallita, estrai_distinta
-from app.matching import VocePortale, abbina
 from app.schema import Distinta, Giocatore
 
 
-def giocatore(riga, nome, **kw):
-    base = dict(riga=riga, numero_maglia=riga, cognome_nome=nome, data_nascita="01/01/2000",
-                matricola_figc="1234567", ruolo="titolare" if riga <= 11 else "riserva",
-                portiere=riga in (1, 12), capitano="C" if riga == 3 else None,
-                documento_tipo="Tess.", documento_numero="1000000", dubbi=[])
-    base.update(kw)
-    return Giocatore(**base)
+def giocatore(numero, cognome="ROSSI", nome="MARIO", dubbi=None):
+    return Giocatore(numero=numero, cognome=cognome, nome=nome, dubbi=dubbi or [])
 
 
 def distinta(giocatori=None):
-    return Distinta(numero_distinta="1", squadra="ASD PROVA", codice_societa="1", gara="ASD PROVA - ASD ESEMPIO",
-                    campionato="SECONDA CATEGORIA", data_ora="01/01/2026 15:30", campo="COMUNALE",
-                    giocatori=giocatori if giocatori is not None else [giocatore(i, f"ROSSI MARIO{i}") for i in range(1, 21)],
-                    staff=[], note_generali=[])
+    if giocatori is None:
+        giocatori = [giocatore(i, f"ROSSI{i}") for i in range(1, 21)]
+    return Distinta(giocatori=giocatori, note_generali=[])
 
 
 def test_distinta_corretta_nessun_avviso():
@@ -35,37 +28,23 @@ def test_distinta_corretta_nessun_avviso():
 
 
 def test_avvisi_su_errori_tipici():
-    g = [giocatore(i, f"BIANCHI LUCA{i}") for i in range(1, 11)]  # solo 10 titolari
-    g[4] = giocatore(5, "VERDI ANNA", numero_maglia=4, data_nascita="31/02/2001", dubbi=["cognome poco leggibile"])
-    avvisi = controlla(distinta(g))
-    testo = "\n".join(avvisi)
-    assert "Titolari letti: 10" in testo
-    assert "Numero di maglia 4 ripetuto 2 volte" in testo
-    assert "data di nascita non valida" in testo
-    assert "cognome poco leggibile" in testo
+    g = [
+        giocatore(4, "BIANCHI", "LUCA"),
+        giocatore(4, "VERDI", "ANNA"),
+        giocatore(None, "NERI", "PAOLO"),
+        giocatore(7, "BIANCHI", "LUCA"),
+        giocatore(9, "GIALLI", "", dubbi=["nome poco leggibile"]),
+    ]
+    testo = "\n".join(controlla(distinta(g)))
+    assert "Numero 4 ripetuto 2 volte" in testo
+    assert "BIANCHI LUCA compare 2 volte" in testo
+    assert "NERI PAOLO: numero mancante" in testo
+    assert "GIALLI: cognome o nome mancante" in testo
+    assert "nome poco leggibile" in testo
 
 
-def test_abbinamento_omonimi_usa_data_di_nascita():
-    voci = [VocePortale("A1", "ROSSI MARIO", "01/01/1990"), VocePortale("A2", "ROSSI MARIO", "05/05/2004")]
-    r = abbina(giocatore(1, "ROSSI MARIO", data_nascita="05/05/2004"), voci)
-    assert r.stato == "sicuro" and r.voce.id == "A2"
-
-
-def test_abbinamento_nome_invertito_e_accenti():
-    voci = [VocePortale("B1", "Nicolò Andreoli", "02/02/2002"), VocePortale("B2", "Gianni Neri", "03/03/2003")]
-    r = abbina(giocatore(1, "ANDREOLI NICOLO", data_nascita=None), voci)
-    assert r.voce.id == "B1" and r.stato == "sicuro"
-
-
-def test_abbinamento_ambiguo_da_verificare():
-    voci = [VocePortale("C1", "ROSSI MARIO", "01/01/1990"), VocePortale("C2", "ROSSI MARIO", "02/02/1991")]
-    r = abbina(giocatore(1, "ROSSI MARIO", data_nascita=None), voci)
-    assert r.stato == "da_verificare" and len(r.alternative) == 1
-
-
-def test_abbinamento_non_trovato():
-    r = abbina(giocatore(1, "ZANETTI PAOLO"), [VocePortale("D1", "BIANCHI LUCA")])
-    assert r.stato == "non_trovato" and r.voce is None
+def test_distinta_vuota():
+    assert controlla(distinta([])) == ["Nessun giocatore letto: controlla la foto."]
 
 
 class FakeClient:
@@ -89,7 +68,7 @@ def jpeg_grande():
 def test_estrai_ridimensiona_immagine_e_usa_schema():
     client = FakeClient(parsed=distinta())
     risultato = estrai_distinta(jpeg_grande(), "image/jpeg", client=client)
-    assert risultato.squadra == "ASD PROVA"
+    assert len(risultato.giocatori) == 20
     kw = client.chiamate[0]
     assert kw["output_format"] is Distinta
     blocco = kw["messages"][0]["content"][0]
@@ -118,6 +97,7 @@ def test_api_richiede_password_e_restituisce_avvisi(monkeypatch):
     r = c.post("/api/estrai", auth=("arbitro", "segreta"),
                files={"file": ("d.jpg", jpeg_grande(), "image/jpeg")})
     assert r.status_code == 200
-    assert r.json()["distinta"]["squadra"] == "ASD PROVA" and r.json()["avvisi"] == []
+    assert r.json()["distinta"]["giocatori"][0] == {"numero": 1, "cognome": "ROSSI1", "nome": "MARIO", "dubbi": []}
+    assert r.json()["avvisi"] == []
     r = c.post("/api/estrai", auth=("arbitro", "segreta"), files={"file": ("x.txt", b"ciao", "text/plain")})
     assert r.status_code == 415
