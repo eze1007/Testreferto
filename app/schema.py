@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class Giocatore(BaseModel):
@@ -13,6 +13,12 @@ class Giocatore(BaseModel):
     data_nascita: Optional[str] = Field(description="Data di nascita in formato GG/MM/AAAA; null se illeggibile")
     riserva: bool = Field(default=False, description="Lascia false: lo decide il programma (dal 12° giocatore in poi)")
     dubbi: list[str] = Field(description="Campi letti con incertezza; lista vuota se tutto chiaro")
+
+    @field_validator("testo_originale", "cognome", "nome", mode="before")
+    @classmethod
+    def _vuoto_se_mancante(cls, v):
+        # Un nome illeggibile non deve far fallire tutta la distinta: resta vuoto e viene segnalato.
+        return "" if v is None else v
 
 
 class Distinta(BaseModel):

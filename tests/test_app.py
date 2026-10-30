@@ -1,6 +1,7 @@
 """Test con dati inventati: nessun dato reale di calciatori nel repository."""
 
 import io
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -138,3 +139,42 @@ def test_api_richiede_password_e_restituisce_avvisi(monkeypatch):
     assert r.json()["avvisi"] == []
     r = c.post("/api/estrai", auth=("arbitro", "segreta"), files={"file": ("x.txt", b"ciao", "text/plain")})
     assert r.status_code == 415
+
+
+def test_yepapi(monkeypatch):
+    import httpx
+    from app import extract
+
+    inviato = {}
+    risposta = {"giocatori": [
+        {"testo_originale": "HOXHA GANI", "numero": 11, "cognome": "GANI", "nome": "HOXHA",
+         "data_nascita": "16/08/2002", "dubbi": []},
+        {"testo_originale": "NERI", "numero": 7, "cognome": "NERI", "nome": None, "data_nascita": None, "dubbi": []},
+    ], "note_generali": []}
+
+    def server(req):
+        inviato.update(json.loads(req.content), chiave=req.headers["x-api-key"])
+        testo = "Ecco i dati:\n```json\n" + json.dumps(risposta) + "\n```"
+        return httpx.Response(200, json={"choices": [{"message": {"content": testo}, "finish_reason": "stop"}]})
+
+    monkeypatch.setenv("YEPAPI_API_KEY", "yep_sk_prova")
+    monkeypatch.delenv("YEPAPI_MODEL", raising=False)
+    http = httpx.Client(transport=httpx.MockTransport(server))
+    monkeypatch.setattr(extract.httpx, "Client", lambda **kw: http)
+    d = estrai_distinta(jpeg_grande(), "image/jpeg")
+    assert inviato["chiave"] == "yep_sk_prova" and inviato["model"] == "anthropic/claude-haiku-5.5"
+    assert inviato["messages"][1]["content"][0]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+    assert (d.giocatori[0].cognome, d.giocatori[0].nome) == ("HOXHA", "GANI")   # regola delle due parole
+    assert d.giocatori[1].nome == ""                                           # nome illeggibile: niente crash
+    assert any("NERI: cognome o nome mancante" in a for a in controlla(d))
+
+
+def test_yepapi_errore(monkeypatch):
+    import httpx
+    from app import extract
+
+    monkeypatch.setenv("YEPAPI_API_KEY", "sbagliata")
+    http = httpx.Client(transport=httpx.MockTransport(lambda req: httpx.Response(401, json={"error": "INVALID_API_KEY"})))
+    monkeypatch.setattr(extract.httpx, "Client", lambda **kw: http)
+    with pytest.raises(LetturaFallita, match="401"):
+        estrai_distinta(jpeg_grande(), "image/jpeg")

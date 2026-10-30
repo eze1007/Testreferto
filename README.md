@@ -47,6 +47,11 @@ cp .env.example .env   # chiave API, utente/password del pannello e credenziali 
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
+La lettura delle distinte usa YepAPI se nel `.env` c'è `YEPAPI_API_KEY` (modello in
+`YEPAPI_MODEL`, predefinito `anthropic/claude-haiku-5.5`), altrimenti l'API Anthropic con
+`ANTHROPIC_API_KEY`. Sulla distinta di prova Haiku 5.5 e Sonnet 5.5 hanno letto 20 giocatori su
+20 senza errori; Haiku 4.5 solo 9 su 20.
+
 Il file `.env` viene letto automaticamente all'avvio (anche su Windows: basta copiare
 `.env.example` in `.env` e compilarlo).
 
