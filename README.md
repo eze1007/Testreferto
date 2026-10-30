@@ -38,7 +38,16 @@ nome non ricompongono il testo stampato il giocatore viene segnalato.
 I controlli sulla distinta (`app/checks.py`) segnalano numeri ripetuti o mancanti, nomi doppi,
 date di nascita mancanti o non valide e ogni campo letto con incertezza.
 
-## Avvio
+## Installazione su Windows
+
+1. Scarica il progetto (su GitHub: branch `claude/relaxed-planck-yatgnx`, Code → Download ZIP) ed
+   estrai la cartella. Serve Python 3.10 o successivo già installato.
+2. Doppio clic su **`installa.bat`**: crea l'ambiente `.venv`, installa le librerie e il browser per
+   Sinfonia4You e crea il file `.env` dal modello (se non esiste). Non avvia il programma.
+3. Apri `.env` con il Blocco note e scrivi le chiavi.
+4. Quando vuoi usarlo: doppio clic su **`avvia.bat`**, si apre http://localhost:8000.
+
+## Avvio (Linux / macOS)
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
