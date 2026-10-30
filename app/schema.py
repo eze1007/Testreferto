@@ -11,7 +11,7 @@ class Giocatore(BaseModel):
     cognome: str = Field(description="Cognome in maiuscolo, come scritto (anche composto, es. 'DAL CERO')")
     nome: str = Field(description="Nome o nomi in maiuscolo, come scritti, senza sigle (R)/(P)")
     data_nascita: Optional[str] = Field(description="Data di nascita in formato GG/MM/AAAA; null se illeggibile")
-    riserva: bool = Field(description="True se accanto al nome c'è la sigla (R)")
+    riserva: bool = Field(default=False, description="Lascia false: lo decide il programma (dal 12° giocatore in poi)")
     dubbi: list[str] = Field(description="Campi letti con incertezza; lista vuota se tutto chiaro")
 
 

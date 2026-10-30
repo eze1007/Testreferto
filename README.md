@@ -6,7 +6,7 @@ Il programma fa due cose:
 
 1. **Lettura delle distinte.** Nella pagina web si carica la foto o il PDF della distinta della
    squadra di casa (a sinistra) e di quella ospite (a destra), poi **Prosegui**. Per ogni
-   calciatore vengono estratti numero, cognome, nome, data di nascita e se è una riserva `(R)`,
+   calciatore vengono estratti numero, cognome, nome e data di nascita (i primi 11 sono titolari),
    mostrati in due tabelle (titolari e riserve) correggibili a mano.
 2. **Compilazione di Sinfonia4You.** Nella stessa pagina si scrive la gara (parole che la
    identificano in Gestione Referti) e si preme **Compila Sinfonia4You**. Il server apre il portale,
@@ -29,9 +29,7 @@ Regole della compilazione (`app/sinfonia.py`):
   resta aperto per il controllo.
 
 Titolari e riserve si decidono dalla posizione nella lista, non dal numero di maglia: i primi 11
-giocatori sono titolari (anche con numeri come 13 o 16), dal 12° in poi riserve. La sigla (R)
-letta sulla distinta serve solo da controllo: se non torna con la posizione il giocatore viene
-segnalato.
+giocatori sono titolari (anche con numeri come 13 o 16), dal 12° in poi riserve.
 
 La distinta stampa prima il cognome: se la colonna "Cognome e nome" ha due parole, la prima è il
 cognome e la seconda il nome. Con tre o più parole vale la lettura del modello, e se cognome +

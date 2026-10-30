@@ -20,7 +20,7 @@ fotografate o scansionate da un arbitro.
 Elenca i calciatori nell'ordine delle righe della distinta, dall'alto in basso, senza riordinarli. \
 Per ogni calciatore estrai: il numero (colonna "N° del Ruolo", non il numero di riga stampato a \
 margine; non è in ordine e nei primi 11 possono esserci numeri alti come 13 o 16), il cognome, \
-il nome, la data di nascita (GG/MM/AAAA) e se è una riserva (sigla "(R)" sotto o accanto al nome). Nella colonna "Cognome e nome" il cognome viene prima del \
+il nome e la data di nascita (GG/MM/AAAA). Nella colonna "Cognome e nome" il cognome viene prima del \
 nome; i cognomi possono essere composti (es. "DAL CERO") e i nomi doppi (es. "MATTEO ANTONIO"). \
 Non riportare le sigle nel nome e non includere staff o dirigenti. In `testo_originale` copia \
 il contenuto della colonna "Cognome e nome" così com'è (senza sigle), prima di dividerlo.
@@ -95,17 +95,9 @@ TITOLARI = 11
 
 
 def applica_regola_titolari(distinta: Distinta) -> None:
-    """I primi 11 della lista sono titolari, gli altri riserve, qualunque sia il numero di maglia.
-
-    La sigla (R) letta dal modello serve solo da controllo: se non torna con la posizione,
-    il giocatore viene segnalato.
-    """
+    """I primi 11 della lista sono titolari, gli altri riserve, qualunque sia il numero di maglia."""
     for posizione, g in enumerate(distinta.giocatori):
-        riserva = posizione >= TITOLARI
-        if g.riserva != riserva:
-            g.dubbi.append(f"sulla distinta {'manca' if riserva else 'compare'} la sigla (R), "
-                           f"ma è {posizione + 1}° nella lista: considerato {'riserva' if riserva else 'titolare'}")
-        g.riserva = riserva
+        g.riserva = posizione >= TITOLARI
 
 
 def applica_regola_due_parole(g: Giocatore) -> None:

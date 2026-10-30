@@ -67,17 +67,12 @@ def test_regola_due_parole_e_divisione_da_verificare():
 
 
 def test_primi_11_titolari_qualunque_numero():
-    numeri = [1, 2, 13, 4, 5, 16, 7, 8, 9, 10, 11, 3, 6, 12]       # 13 e 16 tra i titolari, 3 e 6 riserve
+    numeri = [1, 2, 13, 4, 5, 16, 7, 8, 9, 10, 11, 3, 6, 12]       # 13 e 16 tra i primi 11
     letti = [Giocatore(testo_originale=f"G{n} X", numero=n, cognome=f"G{n}", nome="X", data_nascita="01/01/2000",
-                       riserva=i >= 11, dubbi=[]) for i, n in enumerate(numeri)]
-    letti[2].riserva = True                                          # (R) letta per errore su un titolare
+                       dubbi=[]) for n in numeri]
     risultato = estrai_distinta(b"%PDF", "application/pdf", client=FakeClient(parsed=distinta(letti)))
-    titolari = [g.numero for g in risultato.giocatori if not g.riserva]
-    riserve = [g.numero for g in risultato.giocatori if g.riserva]
-    assert titolari == [1, 2, 13, 4, 5, 16, 7, 8, 9, 10, 11] and riserve == [3, 6, 12]
-    avvisi = controlla(risultato)
-    assert any("G13 X" in a and "3° nella lista: considerato titolare" in a for a in avvisi)
-    assert sum("sigla (R)" in a for a in avvisi) == 1
+    assert [g.numero for g in risultato.giocatori if not g.riserva] == [1, 2, 13, 4, 5, 16, 7, 8, 9, 10, 11]
+    assert [g.numero for g in risultato.giocatori if g.riserva] == [3, 6, 12]
 
 
 def test_meno_di_11_giocatori():
