@@ -44,7 +44,7 @@ def compila(
         s4y = Sinfonia(page, cartella_debug=cartella_debug)
         try:
             avanzamento("Accesso a Sinfonia4You…")
-            s4y.login(utente, password)
+            s4y.login(utente, password, attesa_captcha_s=0 if headless else 180, avviso=avanzamento)
             avanzamento(f"Ricerca della gara «{gara}»…")
             s4y.apri_gara(gara)
             avanzamento("Svolgimento e Sicurezza…")

@@ -38,7 +38,16 @@ nome non ricompongono il testo stampato il giocatore viene segnalato.
 I controlli sulla distinta (`app/checks.py`) segnalano numeri ripetuti o mancanti, nomi doppi,
 date di nascita mancanti o non valide e ogni campo letto con incertezza.
 
-## Avvio
+## Installazione su Windows
+
+1. Scarica il progetto (su GitHub: branch `claude/relaxed-planck-yatgnx`, Code → Download ZIP) ed
+   estrai la cartella. Serve Python 3.10 o successivo già installato.
+2. Doppio clic su **`installa.bat`**: crea l'ambiente `.venv`, installa le librerie e il browser per
+   Sinfonia4You e crea il file `.env` dal modello (se non esiste). Non avvia il programma.
+3. Apri `.env` con il Blocco note e scrivi le chiavi.
+4. Quando vuoi usarlo: doppio clic su **`avvia.bat`**, si apre http://localhost:8000.
+
+## Avvio (Linux / macOS)
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
@@ -46,6 +55,11 @@ pip install -r requirements.txt
 cp .env.example .env   # chiave API, utente/password del pannello e credenziali Sinfonia4You
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
+
+La lettura delle distinte usa YepAPI se nel `.env` c'è `YEPAPI_API_KEY` (modello in
+`YEPAPI_MODEL`, predefinito `anthropic/claude-haiku-5.5`), altrimenti l'API Anthropic con
+`ANTHROPIC_API_KEY`. Sulla distinta di prova Haiku 5.5 e Sonnet 5.5 hanno letto 20 giocatori su
+20 senza errori; Haiku 4.5 solo 9 su 20.
 
 Il file `.env` viene letto automaticamente all'avvio (anche su Windows: basta copiare
 `.env.example` in `.env` e compilarlo).

@@ -139,3 +139,32 @@ def test_numeri_alti_tra_i_titolari(page):
     assert [r[0] for r in casa[:11]] == ["1", "2", "16", "4", "5", "6", "7", "8", "9", "10", "13"]
     assert casa[2][1].startswith("TITOLARE SEDICI")                      # il 16 è nelle righe dei titolari
     assert casa[11][:2] == ["3", "RISERVA TRE (01/01/2000 - ID 911)"]   # il 3 è la prima riserva
+
+
+def test_login_con_finestra_di_benvenuto(page):
+    s4y = Sinfonia(page)
+    s4y.login("arbitro123", "segreta")      # la finestra modale "Benvenuto" viene chiusa con Ok
+    assert page.get_by_text("Benvenuto su Sinfonia4You").is_visible()
+    assert page.locator(".ui-dialog").count() == 0
+
+
+def test_codice_di_sicurezza_senza_browser_visibile(page):
+    page.unroute(portale_finto.BASE + "**")
+    portale_finto.installa(page, captcha=True)
+    with pytest.raises(RuntimeError, match="codice di sicurezza"):
+        Sinfonia(page).login("arbitro123", "segreta")
+
+
+def test_gara_gia_refertata(page):
+    s4y = Sinfonia(page)
+    s4y.login("arbitro123", "segreta")
+    with pytest.raises(RuntimeError, match="già refertata"):
+        s4y.apri_gara("montecchio")         # ha solo "i" e PDF: niente "+" da premere
+
+
+def test_tipo_icona():
+    tipo = Sinfonia._tipo_icona
+    assert tipo("nuovo_inserimento/default.asp?id=5") == "nuovo"
+    assert tipo("/img/ico_add.png") == "nuovo" and tipo("+") == "nuovo"
+    assert tipo("/img/pdf.png stampa.asp?a=1+2") == "pdf"   # un + nell'indirizzo non conta
+    assert tipo("/img/info.png") == "info" and tipo("/img/matita.png") == "modifica"
