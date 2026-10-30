@@ -14,6 +14,10 @@ from playwright.sync_api import sync_playwright
 from app import main
 from app.schema import Distinta, Giocatore
 
+from . import portale_finto
+
+CHROMIUM = os.environ.get("CHROMIUM_PATH") or next(iter(glob.glob("/opt/pw-browsers/chromium-*/chrome-linux*/chrome")), None)
+
 
 def g(n, cognome, nome, data, riserva=False, dubbi=()):
     return Giocatore(testo_originale=f"{cognome} {nome}", numero=n, cognome=cognome, nome=nome,
@@ -23,8 +27,8 @@ def g(n, cognome, nome, data, riserva=False, dubbi=()):
 LETTURE = {
     "casa.jpg": Distinta(giocatori=[g(1, "ROSSI", "MARIO", "01/01/2000"),
                                     g(12, "BIANCHI", "LUCA", "02/02/2001", riserva=True)], note_generali=[]),
-    "ospite.jpg": Distinta(giocatori=[g(9, "VERDI", "ANNA", "03/03/2003", dubbi=["nome poco leggibile"])],
-                           note_generali=[]),
+    "ospite.jpg": Distinta(giocatori=[g(9, "VERDI", "ANNA", "03/03/2003", dubbi=["nome poco leggibile"]),
+                                      g(10, "NUOVO", "GIOCATORE", "05/05/2005")], note_generali=[]),
 }
 
 
@@ -36,8 +40,12 @@ def finta_lettura(dati: bytes, content_type: str) -> Distinta:
 
 @pytest.fixture(scope="module")
 def server():
-    os.environ.update(APP_USER="arbitro", APP_PASSWORD="segreta")
+    os.environ.update(APP_USER="arbitro", APP_PASSWORD="segreta",
+                      SINFONIA_USER="arbitro123", SINFONIA_PASSWORD="segreta")
+    if CHROMIUM:
+        os.environ.setdefault("CHROMIUM_PATH", CHROMIUM)
     originale, main.estrai_distinta = main.estrai_distinta, finta_lettura
+    main.PREPARA_PAGINA = portale_finto.installa  # il server compila la copia finta del portale
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         porta = s.getsockname()[1]
@@ -48,13 +56,13 @@ def server():
     yield f"http://127.0.0.1:{porta}/"
     srv.should_exit = True
     main.estrai_distinta = originale
+    main.PREPARA_PAGINA = None
 
 
 @pytest.fixture
 def page(server):
-    exe = os.environ.get("CHROMIUM_PATH") or next(iter(glob.glob("/opt/pw-browsers/chromium-*/chrome-linux*/chrome")), None)
     with sync_playwright() as p:
-        browser = p.chromium.launch(executable_path=exe)
+        browser = p.chromium.launch(executable_path=CHROMIUM)
         ctx = browser.new_context(http_credentials={"username": "arbitro", "password": "segreta"}, accept_downloads=True)
         pagina = ctx.new_page()
         pagina.goto(server)
@@ -82,7 +90,7 @@ def test_flusso_completo(page):
     assert ospite.locator("td.dubbio").count() == 4         # riga incerta evidenziata
     assert "nome poco leggibile" in ospite.inner_text()
 
-    campo = ospite.locator("input[data-k=nome]")
+    campo = ospite.locator("input[data-k=nome]").first
     campo.fill("annA ")
     campo.dispatch_event("change")
     with page.expect_download() as dl:
@@ -100,3 +108,27 @@ def test_errore_su_una_squadra(page):
     page.locator("#revisione").wait_for()
     assert "foto illeggibile" in page.locator("#tabella-ospite").inner_text()
     assert page.locator("#tabella-casa input[data-k=cognome]").count() == 2
+
+
+def test_compilazione_dalla_pagina(page):
+    carica(page, "casa", "casa.jpg", b"casa.jpg")
+    carica(page, "ospite", "ospite.jpg", b"ospite.jpg")
+    page.click("#prosegui")
+    page.locator("#revisione").wait_for()
+
+    page.click("#avvia")                                    # senza gara non parte
+    assert page.locator("#compilazione").is_hidden()
+    page.fill("#gara", "sarego liona")
+    page.once("dialog", lambda d: d.accept())
+    page.click("#avvia")
+
+    page.locator("#esito-finale .ok").wait_for(timeout=60_000)
+    assert "Salva Tutto" in page.locator("#esito-finale").inner_text()
+    stati = lambda lato: page.locator(f"#esiti-{lato} .esito").all_inner_texts()
+    assert stati("casa") == ["Selezionato", "Selezionato"]  # ROSSI e BIANCHI sono già in archivio
+    assert stati("ospite") == ["Selezionato", "Nuovo"]
+    assert "Salvataggio (Salva Tutto)" in page.locator("#passi").inner_text()
+    page.locator("#screenshot").wait_for()
+    assert page.locator("#screenshot").evaluate("img => img.complete && img.naturalWidth > 0")
+    page.click("#torna")
+    assert page.locator("#revisione").is_visible()

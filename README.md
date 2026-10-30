@@ -7,12 +7,13 @@ Il programma fa due cose:
 1. **Lettura delle distinte.** Nella pagina web si carica la foto o il PDF della distinta della
    squadra di casa (a sinistra) e di quella ospite (a destra), poi **Prosegui**. Per ogni
    calciatore vengono estratti numero, cognome, nome, data di nascita e se è una riserva `(R)`,
-   mostrati in due tabelle (titolari e riserve) correggibili a mano. "Scarica JSON" salva
-   `liste_gara.json` con entrambe le squadre.
-2. **Compilazione di Sinfonia4You.** Partendo da `liste_gara.json` apre il portale, entra nella gara,
-   segna "Disputata Regolarmente" e "Adeguate senza Forza Pubblica" + Ambulanza "NON Presente"
-   (passando da una scheda all'altra con "Successivo"),
-   poi nelle Liste Gara imposta numero e nominativo di ogni calciatore in entrambe le colonne.
+   mostrati in due tabelle (titolari e riserve) correggibili a mano.
+2. **Compilazione di Sinfonia4You.** Nella stessa pagina si scrive la gara (parole che la
+   identificano in Gestione Referti) e si preme **Compila Sinfonia4You**. Il server apre il portale,
+   entra nella gara, segna "Disputata Regolarmente" e "Adeguate senza Forza Pubblica" + Ambulanza
+   "NON Presente" (passando da una scheda all'altra con "Successivo"), compila le Liste Gara di
+   entrambe le squadre e preme "Salva Tutto". La pagina mostra l'avanzamento, l'esito di ogni
+   giocatore (selezionato, nuovo, da verificare) e lo screenshot finale.
 
 Regole della compilazione (`app/sinfonia.py`):
 
@@ -39,7 +40,7 @@ date di nascita mancanti o non valide e ogni campo letto con incertezza.
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # inserisci la chiave API e utente/password del pannello
+cp .env.example .env   # chiave API, utente/password del pannello e credenziali Sinfonia4You
 set -a && source .env && set +a
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
@@ -53,7 +54,7 @@ Prova dal terminale senza pannello:
 python -m scripts.prova_lettura percorso/distinta.jpg
 ```
 
-Compilazione di Sinfonia4You (browser visibile):
+In alternativa alla pagina, compilazione da terminale con il JSON scaricato (browser visibile):
 
 ```bash
 playwright install chromium

@@ -25,7 +25,7 @@
   @media (max-width: 760px) { .griglia { grid-template-columns:1fr; } }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; min-width:0; }
   .card h2 { margin:0 0 12px; font-size:16px; display:flex; align-items:center; gap:8px; }
-  .card h2::before { content:""; flex:none; width:10px; height:10px; border-radius:50%; background:var(--colore); }
+  .casa h2::before, .ospite h2::before { content:""; flex:none; width:10px; height:10px; border-radius:50%; background:var(--colore); }
   .casa { --colore:var(--casa); } .ospite { --colore:var(--ospite); }
   .card.casa, .card.ospite { border-top:4px solid var(--colore); }
 
@@ -45,6 +45,7 @@
   button.primario:disabled { opacity:.45; cursor:not-allowed; }
   button.secondario { font:inherit; padding:12px 20px; border-radius:8px; background:transparent;
                       color:var(--accent); border:1px solid var(--accent); cursor:pointer; }
+  button.secondario:disabled { opacity:.45; cursor:not-allowed; }
   .stato { color:var(--muted); font-size:14px; margin-top:8px; min-height:1.4em; text-align:right; }
 
   .avvisi { background:var(--warn-bg); color:var(--warn); border-radius:8px; padding:8px 12px; margin-bottom:12px; font-size:14px; }
@@ -61,6 +62,28 @@
   td.dubbio input { border-color:var(--warn); background:var(--warn-bg); }
   tr.sezione td { background:var(--res); font-size:12px; font-weight:600; color:var(--muted); padding:6px 4px; }
   td.r { text-align:center; width:2.5em; }
+
+  .compila { margin-top:16px; display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; }
+  .compila label { flex:1 1 280px; font-size:13px; color:var(--muted); }
+  .compila input { display:block; width:100%; margin-top:4px; font:inherit; padding:11px 12px; border-radius:8px;
+                   border:1px solid var(--line); background:var(--card); color:var(--text); }
+  .compila .nota { flex-basis:100%; font-size:13px; color:var(--muted); margin:0; }
+  .passi { list-style:none; margin:0; padding:0; }
+  .passi li { padding:4px 0 4px 22px; position:relative; }
+  .passi li::before { content:"✓"; position:absolute; left:0; color:var(--accent); font-weight:700; }
+  .passi li:last-child.attivo::before { content:"…"; }
+  .esito { display:inline-block; min-width:5.5em; text-align:center; font-size:12px; font-weight:600;
+           border-radius:999px; padding:2px 8px; }
+  .esito.selezionato { background:#dcfce7; color:#14532d; } .esito.aggiunto { background:#dbeafe; color:#1e3a8a; }
+  .esito.da_verificare { background:var(--warn-bg); color:var(--warn); } .esito.errore { background:var(--err-bg); color:var(--err); }
+  @media (prefers-color-scheme: dark) {
+    .esito.selezionato { background:#14361f; color:#86efac; } .esito.aggiunto { background:#172a4d; color:#93c5fd; }
+  }
+  .esiti td { padding:5px 4px; font-size:14px; }
+  .esiti .dettaglio { font-size:12px; color:var(--muted); }
+  .ok { background:#dcfce7; color:#14532d; border-radius:8px; padding:10px 12px; font-weight:600; }
+  @media (prefers-color-scheme: dark) { .ok { background:#14361f; color:#86efac; } }
+  .screenshot img { width:100%; border:1px solid var(--line); border-radius:8px; }
 
   /* Telefono: il nome va sotto il cognome, così entrambi hanno tutta la larghezza */
   @media (max-width: 760px) {
@@ -118,10 +141,31 @@
       <div class="card casa"><h2 id="titolo-casa">Squadra di casa</h2><div id="tabella-casa"></div></div>
       <div class="card ospite"><h2 id="titolo-ospite">Squadra ospite</h2><div id="tabella-ospite"></div></div>
     </div>
+    <div class="card compila">
+      <label>Gara da refertare
+        <input type="text" id="gara" placeholder="es. il nome di una squadra come appare in Gestione Referti" autocomplete="off">
+      </label>
+      <button class="primario" id="avvia">Compila Sinfonia4You</button>
+      <p class="nota">Compila Svolgimento, Sicurezza e Liste Gara delle due squadre e preme «Salva Tutto».
+        «Invia al G.S.» non viene mai premuto.</p>
+    </div>
     <div class="azioni">
       <button class="secondario" id="indietro">Indietro</button>
-      <button class="primario" id="scarica">Scarica JSON</button>
+      <button class="secondario" id="scarica">Scarica JSON</button>
     </div>
+  </section>
+
+  <!-- Schermata 3: compilazione di Sinfonia4You -->
+  <section id="compilazione" hidden>
+    <div class="card"><h2>Compilazione Sinfonia4You</h2><ul class="passi" id="passi"></ul><div id="esito-finale"></div></div>
+    <div class="griglia" style="margin-top:16px">
+      <div class="card casa"><h2>Squadra di casa</h2><div id="esiti-casa" class="esiti"></div></div>
+      <div class="card ospite"><h2>Squadra ospite</h2><div id="esiti-ospite" class="esiti"></div></div>
+    </div>
+    <div class="card screenshot" id="box-screenshot" style="margin-top:16px" hidden>
+      <h2>Pagina finale</h2><img id="screenshot" alt="Screenshot di Sinfonia4You dopo la compilazione">
+    </div>
+    <div class="azioni"><button class="secondario" id="torna" disabled>Torna alle tabelle</button></div>
   </section>
 </main>
 <script>
@@ -227,14 +271,87 @@ $("#indietro").addEventListener("click", () => {
   $("#caricamento").hidden = false;
 });
 
-$("#scarica").addEventListener("click", () => {
+function squadreLette() {
   const out = {};
   for (const l of LATI) if (dati[l]) out[l] = dati[l].distinta;
+  return out;
+}
+
+$("#scarica").addEventListener("click", () => {
+  const out = squadreLette();
   const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = "liste_gara.json";
   a.click();
+});
+// --- Schermata 3 -------------------------------------------------------------------------
+
+const ETICHETTE = { selezionato: "Selezionato", aggiunto: "Nuovo", da_verificare: "Da verificare", errore: "Errore" };
+
+$("#avvia").addEventListener("click", async () => {
+  const gara = $("#gara").value.trim(), squadre = squadreLette();
+  if (!gara) { $("#gara").focus(); return; }
+  if (!Object.keys(squadre).length) { alert("Nessuna squadra letta."); return; }
+  const mancanti = LATI.filter((l) => !squadre[l]);
+  const avviso = mancanti.length ? `\nAttenzione: manca la squadra ${mancanti[0] === "casa" ? "di casa" : "ospite"}.` : "";
+  if (!confirm(`Compilare Sinfonia4You per la gara «${gara}» e premere «Salva Tutto»?${avviso}`)) return;
+
+  const r = await fetch("/api/compila", { method: "POST", headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ gara, ...squadre }) });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) { alert("Impossibile avviare: " + (body.detail || r.statusText)); return; }
+
+  $("#revisione").hidden = true;
+  $("#compilazione").hidden = false;
+  $("#torna").disabled = true;
+  $("#box-screenshot").hidden = true;
+  $("#esito-finale").innerHTML = "";
+  scrollTo(0, 0);
+  segui(body.id);
+});
+
+async function segui(id) {
+  let s;
+  try {
+    const r = await fetch(`/api/compila/${id}`);
+    s = await r.json();
+    if (!r.ok) throw new Error(s.detail || r.statusText);
+  } catch (e) {
+    $("#esito-finale").innerHTML = `<div class="errore">Collegamento interrotto: ${esc(e.message)}</div>`;
+    $("#torna").disabled = false;
+    return;
+  }
+  $("#passi").innerHTML = s.messaggi.map((m) => `<li>${esc(m)}</li>`).join("");
+  if (s.stato === "in_corso") $("#passi").lastElementChild?.classList.add("attivo");
+  for (const l of LATI) mostraEsiti(l, s.esiti[l], (s.avvisi || {})[l] || []);
+  if (s.stato === "in_corso") { setTimeout(() => segui(id), 1000); return; }
+
+  const problemi = LATI.flatMap((l) => s.esiti[l]).filter((e) => e.stato === "da_verificare" || e.stato === "errore").length;
+  $("#esito-finale").innerHTML = s.stato === "completato"
+    ? `<div class="ok">Referto salvato con «${esc(s.bottone)}».${problemi ? ` ${problemi} giocatori da sistemare a mano.` : ""}</div>`
+    : `<div class="errore">Compilazione interrotta: ${esc(s.errore)}<br>Controlla lo screenshot qui sotto.</div>`;
+  if (s.screenshot) {
+    $("#screenshot").src = `/api/compila/${id}/screenshot?t=${Date.now()}`;
+    $("#box-screenshot").hidden = false;
+  }
+  $("#torna").disabled = false;
+}
+
+function mostraEsiti(lato, esiti, avvisi) {
+  const box = $(`#esiti-${lato}`);
+  if (!dati[lato]) { box.innerHTML = `<div class="vuoto">Squadra non inviata.</div>`; return; }
+  if (!esiti.length && !avvisi.length) { box.innerHTML = `<div class="vuoto">In attesa…</div>`; return; }
+  box.innerHTML = (avvisi.length ? `<div class="avvisi"><ul>${avvisi.map((a) => `<li>${esc(a)}</li>`).join("")}</ul></div>` : "")
+    + `<table>${esiti.map((e) => `<tr>
+        <td style="width:2.5em;text-align:center">${esc(e.numero)}</td>
+        <td>${esc(e.cognome)} ${esc(e.nome)}${e.dettaglio ? `<div class="dettaglio">${esc(e.dettaglio)}</div>` : ""}</td>
+        <td style="text-align:right"><span class="esito ${e.stato}">${ETICHETTE[e.stato]}</span></td></tr>`).join("")}</table>`;
+}
+
+$("#torna").addEventListener("click", () => {
+  $("#compilazione").hidden = true;
+  $("#revisione").hidden = false;
 });
 </script>
 </body>

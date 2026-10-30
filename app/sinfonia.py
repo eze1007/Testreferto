@@ -12,6 +12,7 @@ con "Aggiungi persona". Documenti e capitano non vengono toccati. Alla fine si p
 
 import re
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -249,7 +250,8 @@ class Sinfonia:
         dialogo.get_by_text("Conferma", exact=True).click()
         self.page.get_by_text("Aggiungi Tesserato").first.wait_for(state="hidden")
 
-    def compila_lista(self, giocatori: list[Giocatore], lato: str) -> Report:
+    def compila_lista(self, giocatori: list[Giocatore], lato: str,
+                      al_giocatore: Callable[[Esito], None] | None = None) -> Report:
         report = Report()
         titolari, riserve = self._righe(lato)
         unica_sezione = not riserve and any(g.riserva for g in giocatori)
@@ -271,7 +273,10 @@ class Sinfonia:
                 def riga(sezione=sezione, k=k) -> Riga:
                     t, r = self._righe(lato)
                     return (t if sezione == "titolari" else r)[k]
-                report.esiti.append(self._compila_riga(g, riga, lato))
+                esito = self._compila_riga(g, riga, lato)
+                report.esiti.append(esito)
+                if al_giocatore:
+                    al_giocatore(esito)
         self.istantanea(f"compilata-{lato}")
         return report
 

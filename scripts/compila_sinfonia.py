@@ -16,10 +16,8 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
-
+from app.compilazione import NOMI_LATO, compila
 from app.schema import Distinta
-from app.sinfonia import Sinfonia
 
 ICONE = {"selezionato": "OK ", "aggiunto": "NEW", "da_verificare": "???", "errore": "ERR"}
 
@@ -39,35 +37,23 @@ def main() -> None:
     password = os.environ.get("SINFONIA_PASSWORD") or getpass.getpass("Password: ")
     debug = Path("esplorazione") / datetime.now().strftime("%Y%m%d-%H%M%S")
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=args.headless, executable_path=os.environ.get("CHROMIUM_PATH"))
-        page = browser.new_page(viewport={"width": 1400, "height": 1000})
-        s4y = Sinfonia(page, cartella_debug=debug)
-        try:
-            s4y.login(utente, password)
-            s4y.apri_gara(args.gara)
-            s4y.svolgimento_e_sicurezza()
-            report = {lato: s4y.compila_lista(d.giocatori, lato) for lato, d in squadre.items()}
-            salvato = s4y.salva()
-        except Exception:
-            s4y.istantanea("errore")
-            print(f"\nErrore. Screenshot e pagine salvati in {debug}/")
-            raise
-        finally:
-            print(f"Istantanee in {debug}/ (contengono dati personali: non condividerle)")
+    def stampa(lato, e):
+        g = e.giocatore
+        print(f"  [{ICONE[e.stato]}] {g.numero or '?':>2} {g.cognome} {g.nome} {g.data_nascita or ''}"
+              f"{' (R)' if g.riserva else ''}  {e.dettaglio}")
 
-        for lato, r in report.items():
-            print(f"\n=== Squadra {'di casa' if lato == 'casa' else 'ospite'} ===")
-            for e in r.esiti:
-                g = e.giocatore
-                print(f"[{ICONE[e.stato]}] {g.numero or '?':>2} {g.cognome} {g.nome} {g.data_nascita or ''}"
-                      f"{' (R)' if g.riserva else ''}  {e.dettaglio}")
-            for a in r.avvisi:
-                print("ATTENZIONE:", a)
-        print(f"\nReferto salvato (bottone: {salvato}). Controlla la pagina nel browser.")
-        if not args.headless:
-            input("Premi Invio per chiudere il browser… ")
-        browser.close()
+    risultato = compila(
+        squadre, args.gara, utente, password,
+        headless=args.headless, cartella_debug=debug, avanzamento=print, al_giocatore=stampa,
+        alla_fine=None if args.headless else lambda page: input("\nControlla il browser. Premi Invio per chiuderlo… "),
+    )
+    print(f"\nIstantanee in {debug}/ (contengono dati personali: non condividerle)")
+    for lato, r in risultato.report.items():
+        for a in r.avvisi:
+            print(f"ATTENZIONE ({NOMI_LATO[lato]}): {a}")
+    if risultato.errore:
+        raise SystemExit(f"Errore: {risultato.errore}")
+    print(f"Referto salvato (bottone: {risultato.bottone_salvataggio}).")
 
 
 if __name__ == "__main__":
