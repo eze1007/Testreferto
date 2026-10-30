@@ -47,7 +47,7 @@
     <div class="card avvisi" id="box-avvisi" hidden><strong>Da controllare</strong><ul id="avvisi"></ul></div>
     <div class="card">
       <table>
-        <thead><tr><th>N°</th><th>Cognome</th><th>Nome</th></tr></thead>
+        <thead><tr><th>N°</th><th>Cognome</th><th>Nome</th><th>Nascita</th><th>R</th></tr></thead>
         <tbody id="righe"></tbody>
       </table>
       <div class="azioni">
@@ -92,18 +92,21 @@ function mostra(avvisi) {
       <td${d}><input data-i="${i}" data-k="numero" value="${esc(g.numero)}" inputmode="numeric" size="2"></td>
       <td${d}><input data-i="${i}" data-k="cognome" value="${esc(g.cognome)}"></td>
       <td${d}><input data-i="${i}" data-k="nome" value="${esc(g.nome)}"></td>
+      <td${d}><input data-i="${i}" data-k="data_nascita" value="${esc(g.data_nascita)}" size="10"></td>
+      <td><input type="checkbox" data-i="${i}" data-k="riserva"${g.riserva ? " checked" : ""}></td>
     </tr>`;
   }).join("");
 }
 
 $("righe").addEventListener("change", (e) => {
   const el = e.target, g = distinta.giocatori[el.dataset.i], k = el.dataset.k;
-  g[k] = k === "numero" ? (el.value === "" ? null : Number(el.value)) : el.value.trim().toUpperCase();
+  if (k === "riserva") g.riserva = el.checked;
+  else if (k === "numero") g.numero = el.value === "" ? null : Number(el.value);
+  else g[k] = el.value.trim().toUpperCase() || null;
 });
 
 $("scarica").onclick = () => {
-  const dati = distinta.giocatori.map(({ numero, cognome, nome }) => ({ numero, cognome, nome }));
-  const blob = new Blob([JSON.stringify(dati, null, 2)], { type: "application/json" });
+  const blob = new Blob([JSON.stringify(distinta, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = "distinta.json";
@@ -111,7 +114,7 @@ $("scarica").onclick = () => {
 };
 
 $("copia").onclick = async () => {
-  const testo = distinta.giocatori.map((g) => `${g.numero ?? "?"} ${g.cognome} ${g.nome}`).join("\n");
+  const testo = distinta.giocatori.map((g) => `${g.numero ?? "?"} ${g.cognome} ${g.nome} ${g.data_nascita ?? ""}${g.riserva ? " (R)" : ""}`).join("\n");
   await navigator.clipboard.writeText(testo);
   $("stato").textContent = "Elenco copiato.";
 };

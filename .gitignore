@@ -9,3 +9,5 @@ distinte/
 *.png
 *.heic
 *.pdf
+# Screenshot e pagine salvate durante la compilazione (dati personali)
+esplorazione/

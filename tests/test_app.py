@@ -13,8 +13,9 @@ from app.extract import LetturaFallita, estrai_distinta
 from app.schema import Distinta, Giocatore
 
 
-def giocatore(numero, cognome="ROSSI", nome="MARIO", dubbi=None):
-    return Giocatore(numero=numero, cognome=cognome, nome=nome, dubbi=dubbi or [])
+def giocatore(numero, cognome="ROSSI", nome="MARIO", data="01/01/2000", dubbi=None):
+    return Giocatore(numero=numero, cognome=cognome, nome=nome, data_nascita=data,
+                     riserva=numero is not None and numero > 11, dubbi=dubbi or [])
 
 
 def distinta(giocatori=None):
@@ -34,6 +35,8 @@ def test_avvisi_su_errori_tipici():
         giocatore(None, "NERI", "PAOLO"),
         giocatore(7, "BIANCHI", "LUCA"),
         giocatore(9, "GIALLI", "", dubbi=["nome poco leggibile"]),
+        giocatore(10, "ROSA", "LUCIA", data="31/02/2001"),
+        giocatore(11, "BLU", "ELSA", data=None),
     ]
     testo = "\n".join(controlla(distinta(g)))
     assert "Numero 4 ripetuto 2 volte" in testo
@@ -41,6 +44,8 @@ def test_avvisi_su_errori_tipici():
     assert "NERI PAOLO: numero mancante" in testo
     assert "GIALLI: cognome o nome mancante" in testo
     assert "nome poco leggibile" in testo
+    assert "ROSA LUCIA: data di nascita non valida" in testo
+    assert "BLU ELSA: data di nascita mancante" in testo
 
 
 def test_distinta_vuota():
@@ -97,7 +102,8 @@ def test_api_richiede_password_e_restituisce_avvisi(monkeypatch):
     r = c.post("/api/estrai", auth=("arbitro", "segreta"),
                files={"file": ("d.jpg", jpeg_grande(), "image/jpeg")})
     assert r.status_code == 200
-    assert r.json()["distinta"]["giocatori"][0] == {"numero": 1, "cognome": "ROSSI1", "nome": "MARIO", "dubbi": []}
+    assert r.json()["distinta"]["giocatori"][0] == {"numero": 1, "cognome": "ROSSI1", "nome": "MARIO",
+                                                    "data_nascita": "01/01/2000", "riserva": False, "dubbi": []}
     assert r.json()["avvisi"] == []
     r = c.post("/api/estrai", auth=("arbitro", "segreta"), files={"file": ("x.txt", b"ciao", "text/plain")})
     assert r.status_code == 415

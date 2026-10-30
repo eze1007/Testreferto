@@ -1,0 +1,106 @@
+"""Test della compilazione su una copia finta del portale (nessun accesso a Sinfonia4You)."""
+
+import glob
+import os
+
+import pytest
+from playwright.sync_api import sync_playwright
+
+from app.schema import Giocatore
+from app.sinfonia import Sinfonia, scegli_opzione
+
+from . import portale_finto
+
+
+def g(numero, cognome, nome, data, riserva=False):
+    return Giocatore(numero=numero, cognome=cognome, nome=nome, data_nascita=data, riserva=riserva, dubbi=[])
+
+
+OPZIONI = ["", "ROSSI MARIO (01/01/2000 - ID 111)", "ROSSI MARIO (01/01/2000 - ID 222)",
+           "ROSSI MARIO (05/05/1990 - ID 333)", "ANDREOLI NICOLÒ (02/02/2002 - ID 444)"]
+
+
+def test_omonimi_stessa_data_sceglie_il_primo():
+    assert scegli_opzione(g(1, "ROSSI", "MARIO", "01/01/2000"), OPZIONI).indice == 1
+
+
+def test_omonimo_con_altra_data():
+    assert scegli_opzione(g(1, "ROSSI", "MARIO", "05/05/1990"), OPZIONI).indice == 3
+
+
+def test_accenti_ignorati():
+    assert scegli_opzione(g(1, "ANDREOLI", "NICOLO", "02/02/2002"), OPZIONI).stato == "trovato"
+
+
+def test_nome_simile_non_crea_doppioni():
+    s = scegli_opzione(g(1, "ANDREOLLI", "NICOLO", "02/02/2002"), OPZIONI)
+    assert s.stato == "da_verificare" and "ANDREOLI" in s.motivo
+
+
+def test_stesso_nome_data_diversa_da_verificare():
+    assert scegli_opzione(g(1, "ROSSI", "MARIO", "09/09/1999"), OPZIONI).stato == "da_verificare"
+
+
+def test_giocatore_nuovo_e_data_mancante():
+    assert scegli_opzione(g(1, "NERI", "PAOLO", "03/03/2003"), OPZIONI).stato == "nuovo"
+    assert scegli_opzione(g(1, "NERI", "PAOLO", None), OPZIONI).stato == "da_verificare"
+
+
+@pytest.fixture
+def page():
+    exe = os.environ.get("CHROMIUM_PATH") or next(iter(glob.glob("/opt/pw-browsers/chromium-*/chrome-linux*/chrome")), None)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(executable_path=exe)
+        pagina = browser.new_page(viewport={"width": 1400, "height": 1000})
+        portale_finto.installa(pagina)
+        yield pagina
+        browser.close()
+
+
+def leggi_colonna(page, lato):
+    """(numero, nominativo, documento) di ogni riga compilata della colonna."""
+    return page.evaluate(
+        """(lato) => [...document.querySelectorAll('select.gioc.' + lato)].map((s) => {
+             const riga = s.parentElement, doc = riga.nextElementSibling;
+             return [riga.querySelector('select').value, s.value, doc.querySelector('input').value,
+                     riga.querySelectorAll('select')[2].value];
+           })""",
+        lato,
+    )
+
+
+def test_percorso_completo(page):
+    s4y = Sinfonia(page)
+    with pytest.raises(RuntimeError, match="Login non riuscito"):
+        s4y.login("arbitro123", "sbagliata")
+    s4y.login("arbitro123", "segreta")
+    s4y.apri_gara("san giovanni ilarione")
+    s4y.svolgimento_e_sicurezza()
+
+    giocatori = [
+        g(7, "ROSSI", "MARIO", "01/01/2000"),
+        g(9, "DAL CERO", "ALESSANDRO", "06/11/2004"),
+        g(10, "NERI", "PAOLO", "03/03/2003"),            # non in archivio: va aggiunto
+        g(11, "BIANCHI", "LUCAS", "02/02/2001"),         # simile a BIANCHI LUCA: da verificare
+        g(14, "VERDI", "ANNA", "03/03/2003", riserva=True),
+    ]
+    report = s4y.compila_lista(giocatori, "ospite")
+
+    assert [e.stato for e in report.esiti] == ["selezionato", "selezionato", "aggiunto", "da_verificare", "selezionato"]
+    assert report.avvisi == []
+
+    ospite = leggi_colonna(page, "ospite")
+    assert ospite[0][:2] == ["7", "ROSSI MARIO (01/01/2000 - ID 111)"]
+    assert ospite[1][:2] == ["9", "DAL CERO ALESSANDRO (06/11/2004 - ID 444)"]
+    assert ospite[2][:2] == ["10", "NERI PAOLO (03/03/2003 - ID 900)"]
+    assert ospite[3][1] == ""                            # lasciato vuoto per l'arbitro
+    assert ospite[11][:2] == ["14", "VERDI ANNA (03/03/2003 - ID 555)"]  # prima riga riserve
+    assert all(r[2] == "" and r[3] == "" for r in ospite)  # documenti e capitano non toccati
+    assert all(r[1] == "" for r in leggi_colonna(page, "casa"))  # squadra di casa intatta
+
+
+def test_gara_non_trovata(page):
+    s4y = Sinfonia(page)
+    s4y.login("arbitro123", "segreta")
+    with pytest.raises(RuntimeError, match="Gare trovate"):
+        s4y.apri_gara("JUVENTUS")

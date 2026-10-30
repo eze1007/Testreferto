@@ -17,10 +17,11 @@ MAX_BYTES = 4_500_000
 SYSTEM_PROMPT = """Leggi distinte di gara del calcio dilettantistico italiano (F.I.G.C. - L.N.D.) \
 fotografate o scansionate da un arbitro.
 
-Per ogni calciatore elencato estrai solo tre dati: il numero (colonna "N° del Ruolo", non il \
-numero di riga stampato a margine), il cognome e il nome. Nella colonna "Cognome e nome" il \
-cognome viene prima del nome; i cognomi possono essere composti (es. "DAL CERO") e i nomi doppi \
-(es. "MATTEO ANTONIO"). Non riportare le sigle (R), (P) e non includere staff o dirigenti.
+Per ogni calciatore elencato estrai: il numero (colonna "N° del Ruolo", non il numero di riga \
+stampato a margine), il cognome, il nome, la data di nascita (GG/MM/AAAA) e se è una riserva \
+(sigla "(R)" sotto o accanto al nome). Nella colonna "Cognome e nome" il cognome viene prima del \
+nome; i cognomi possono essere composti (es. "DAL CERO") e i nomi doppi (es. "MATTEO ANTONIO"). \
+Non riportare le sigle nel nome e non includere staff o dirigenti.
 
 Riporta i dati esattamente come sono scritti: non correggere i nomi e non inventare valori. Se \
 una lettera o una cifra è incerta, o la divisione tra cognome e nome non è chiara, riporta la \
@@ -72,7 +73,7 @@ def estrai_distinta(dati: bytes, content_type: str, client: anthropic.Anthropic 
             "role": "user",
             "content": [
                 _blocco_file(dati, content_type),
-                {"type": "text", "text": "Estrai numero, cognome e nome di ogni calciatore."},
+                {"type": "text", "text": "Estrai i dati di ogni calciatore."},
             ],
         }],
         output_format=Distinta,

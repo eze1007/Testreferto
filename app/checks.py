@@ -1,6 +1,7 @@
 """Controlli di coerenza sui dati estratti, da mostrare all'arbitro prima di usarli."""
 
 from collections import Counter
+from datetime import datetime
 
 from .schema import Distinta
 
@@ -27,6 +28,13 @@ def controlla(distinta: Distinta) -> list[str]:
             avvisi.append(f"{chi}: numero mancante.")
         if not g.cognome or not g.nome:
             avvisi.append(f"{chi}: cognome o nome mancante.")
+        if g.data_nascita is None:
+            avvisi.append(f"{chi}: data di nascita mancante.")
+        else:
+            try:
+                datetime.strptime(g.data_nascita, "%d/%m/%Y")
+            except ValueError:
+                avvisi.append(f"{chi}: data di nascita non valida ({g.data_nascita}).")
         for dubbio in g.dubbi:
             avvisi.append(f"{chi}: {dubbio}")
 
