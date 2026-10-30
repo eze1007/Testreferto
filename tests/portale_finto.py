@@ -56,15 +56,21 @@ PASSWORD <input type="password" name="password" id="password" value="PASSWORD" {
     onclick="document.getElementById('velo').remove(); this.closest('.ui-dialog').remove()">Ok</button></div>
 </div>"""
 
+# Il menu "Gestione Gare" è chiuso: "Gestione Referti" non si vede finché non lo si apre.
 HOME = """<div class="box"><div class="titolo">Benvenuto su Sinfonia4You</div>
-<a href="gestione_referti.asp">Gestione Referti</a></div>"""
+<a href="#" onclick="document.getElementById('sotto').style.display='block'; return false">Gestione Gare</a>
+<div id="sotto" style="display:none"><a href="area_utenti/area_tecnica/gestione_referti/default.asp">Gestione Referti</a></div>
+</div>"""
 
-GARE = """<div class="box"><div class="titolo">Referti Da Compilare</div>
+_ICONA = '<img src="{}" width="16" height="16">'
+GARE = f"""<div class="box"><div class="titolo">Gestione Referti</div>
 <table width="100%"><tr><th>Data</th><th>Gara</th><th>Azioni</th></tr>
 <tr><td>11/10/2026</td><td>SAN GIOVANNI ILARIONE<br>SAREGO LIONA ACADEMY</td>
-    <td><a href="svolgimento.asp"><img alt="+" width="16" height="16"></a></td></tr>
+    <td><a href="dettaglio.asp"><img src="/img/info.png" width="16" height="16"></a>
+        <a href="nuovo_inserimento/default.asp">{_ICONA.format('/img/ico_add.png')}</a></td></tr>
 <tr><td>04/10/2026</td><td>MONTECCHIO S.PIETRO<br>SAN VITALE 1995</td>
-    <td><a href="altra.asp"><img alt="+" width="16" height="16"></a></td></tr></table></div>"""
+    <td><a href="dettaglio.asp">{_ICONA.format('/img/info.png')}</a>
+        <a href="stampa.asp">{_ICONA.format('/img/pdf.png')}</a></td></tr></table></div>"""
 
 SVOLGIMENTO = f"""{_schede('Svolgimento')}<div class="box"><div class="titolo">Svolgimento della Gara</div>
 {_scegli('Disputata Regolarmente')}{_scegli('Disputata Con Sospensioni')}{_scegli('Sospesa')}</div>
@@ -127,9 +133,11 @@ function conferma() {{
 }}
 </script>"""
 
+_REFERTI = "area_utenti/area_tecnica/gestione_referti/"
 PAGINE = {
-    "": LOGIN, "default.asp?action=accesso_sistema": HOME, "gestione_referti.asp": GARE,
-    "svolgimento.asp": SVOLGIMENTO, "sicurezza.asp": SICUREZZA, "liste.asp": LISTE,
+    "": LOGIN, "default.asp?action=accesso_sistema": HOME, _REFERTI + "default.asp": GARE,
+    _REFERTI + "nuovo_inserimento/default.asp": SVOLGIMENTO, _REFERTI + "nuovo_inserimento/sicurezza.asp": SICUREZZA,
+    _REFERTI + "nuovo_inserimento/liste.asp": LISTE,
 }
 
 

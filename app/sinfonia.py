@@ -21,6 +21,7 @@ from playwright.sync_api import Locator, Page
 from .schema import Giocatore
 
 URL = "https://servizi.aia-figc.it/sinfonia4you/"
+URL_REFERTI = URL + "area_utenti/area_tecnica/gestione_referti/default.asp"
 TIMEOUT_MS = 20_000
 
 # "COGNOME NOME (GG/MM/AAAA - ID 1234567)"
@@ -178,8 +179,36 @@ class Sinfonia:
             raise RuntimeError("Login non riuscito: controlla utente e password" + (f" ({errore})" if errore else ""))
         self.chiudi_finestre(1500)  # eventuali avvisi dopo l'accesso
 
-    def apri_gara(self, gara: str) -> None:
+    def _vai_a_gestione_referti(self) -> None:
+        # "Gestione Referti" sta nel menu "Gestione Gare", chiuso: si apre direttamente la pagina.
+        self.page.goto(URL_REFERTI)
+        self.page.wait_for_load_state()
+        self.chiudi_finestre(500)
+        if self.page.get_by_text(re.compile("Referti Da Compilare|Gestione Referti", re.I)).count():
+            return
+        # Ripiego: dalla home, apri il menu e clicca la voce.
+        self.page.goto(URL)
+        self.chiudi_finestre(500)
+        self.page.get_by_text("Gestione Gare", exact=True).first.click()
         self._clicca_testo("Gestione Referti")
+
+    @staticmethod
+    def _tipo_icona(descrizione: str) -> str:
+        d = descrizione.lower()
+        if re.search(r"nuovo_inserimento|aggiung|[^a-z]add|plus|nuov|inserisc|(^|\s)\+(\s|$)", d):
+            return "nuovo"
+        if re.search(r"modific|edit|matita|pencil", d):
+            return "modifica"
+        if re.search(r"pdf|stampa|print", d):
+            return "pdf"
+        if re.search(r"info|dettagl|visualizz", d):
+            return "info"
+        if re.search(r"mail|invia|busta|g\.s", d):
+            return "invio"
+        return "?"
+
+    def apri_gara(self, gara: str) -> None:
+        self._vai_a_gestione_referti()
         def parole(testo: str) -> list[str]:
             return re.sub(r"[^A-Z0-9]+", " ", testo.upper()).split()
 
@@ -193,8 +222,22 @@ class Sinfonia:
         if len(trovate) != 1:
             self.istantanea("lista-gare")
             raise RuntimeError(f"Gare trovate per '{gara}': {len(trovate)} (serve esattamente 1)")
-        trovate[0].locator("a:visible, input[type=image]:visible, img:visible").last.click()
+        # Icone della riga: "+" (nuovo referto) o matita (referto già iniziato); mai "i", PDF o invio.
+        icone = trovate[0].locator("a:visible, input[type=image]:visible")
+        tipi = {}
+        for i in range(icone.count()):
+            descrizione = icone.nth(i).evaluate(
+                """(el) => [el.getAttribute('href'), el.getAttribute('onclick'), el.title, el.alt, el.src,
+                            ...[...el.querySelectorAll('img')].flatMap((m) => [m.src, m.alt, m.title])]
+                           .filter(Boolean).join(' ')""")
+            tipi.setdefault(self._tipo_icona(descrizione), icone.nth(i))
+        icona = tipi.get("nuovo") or tipi.get("modifica")
+        if icona is None:
+            self.istantanea("lista-gare")
+            raise RuntimeError(f"La gara '{gara}' non ha il '+' né la matita: è già refertata o non modificabile")
+        icona.click()
         self.page.wait_for_load_state()
+        self.chiudi_finestre(500)
         self.istantanea("gara-aperta")
 
     def svolgimento_e_sicurezza(self) -> None:

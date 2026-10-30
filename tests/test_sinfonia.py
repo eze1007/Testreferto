@@ -153,3 +153,18 @@ def test_codice_di_sicurezza_senza_browser_visibile(page):
     portale_finto.installa(page, captcha=True)
     with pytest.raises(RuntimeError, match="codice di sicurezza"):
         Sinfonia(page).login("arbitro123", "segreta")
+
+
+def test_gara_gia_refertata(page):
+    s4y = Sinfonia(page)
+    s4y.login("arbitro123", "segreta")
+    with pytest.raises(RuntimeError, match="già refertata"):
+        s4y.apri_gara("montecchio")         # ha solo "i" e PDF: niente "+" da premere
+
+
+def test_tipo_icona():
+    tipo = Sinfonia._tipo_icona
+    assert tipo("nuovo_inserimento/default.asp?id=5") == "nuovo"
+    assert tipo("/img/ico_add.png") == "nuovo" and tipo("+") == "nuovo"
+    assert tipo("/img/pdf.png stampa.asp?a=1+2") == "pdf"   # un + nell'indirizzo non conta
+    assert tipo("/img/info.png") == "info" and tipo("/img/matita.png") == "modifica"
