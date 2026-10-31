@@ -143,7 +143,7 @@
     </div>
     <div class="card compila">
       <label>Gara da refertare
-        <input type="text" id="gara" placeholder="es. il nome di una squadra come appare in Gestione Referti" autocomplete="off">
+        <input type="text" id="gara" placeholder="es. Tezze, oppure Tezze vs Brendola" autocomplete="off">
       </label>
       <button class="primario" id="avvia">Compila Sinfonia4You</button>
       <p class="nota">Compila Svolgimento, Sicurezza e Liste Gara delle due squadre e preme «Salva Tutto».
@@ -293,6 +293,14 @@ $("#avvia").addEventListener("click", async () => {
   const gara = $("#gara").value.trim(), squadre = squadreLette();
   if (!gara) { $("#gara").focus(); return; }
   if (!Object.keys(squadre).length) { alert("Nessuna squadra letta."); return; }
+  for (const l of LATI) {
+    const titolari = squadre[l] ? squadre[l].giocatori.filter((g) => !g.riserva).length : 0;
+    if (titolari > 11) {
+      alert(`Squadra ${l === "casa" ? "di casa" : "ospite"}: ${titolari} titolari, ma in Sinfonia4You ce ne stanno 11.\n` +
+            "Metti la R ai giocatori che vanno tra le riserve.");
+      return;
+    }
+  }
   const mancanti = LATI.filter((l) => !squadre[l]);
   const avviso = mancanti.length ? `\nAttenzione: manca la squadra ${mancanti[0] === "casa" ? "di casa" : "ospite"}.` : "";
   if (!confirm(`Compilare Sinfonia4You per la gara «${gara}» e premere «Salva Tutto»?${avviso}`)) return;

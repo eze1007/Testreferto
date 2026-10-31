@@ -49,10 +49,28 @@ def compila(
             s4y.apri_gara(gara)
             avanzamento("Svolgimento e Sicurezza…")
             s4y.svolgimento_e_sicurezza()
+            # 1) prima tutti i giocatori nuovi in archivio, 2) poi le scelte, 3) infine il controllo:
+            # così una ricarica della pagina dopo "Aggiungi persona" non cancella scelte già fatte.
+            avanzamento("Controllo dei dati già presenti nel referto…")
+            liberate = {lato: s4y.libera_righe_sbagliate(d.giocatori, lato) for lato, d in squadre.items()}
+            aggiunti = {}
+            for lato, distinta in squadre.items():
+                avanzamento(f"Giocatori nuovi in archivio, {NOMI_LATO[lato]}…")
+                aggiunti[lato] = s4y.aggiungi_mancanti(distinta.giocatori, lato)
             for lato, distinta in squadre.items():
                 avanzamento(f"Liste Gara, {NOMI_LATO[lato]}…")
                 risultato.report[lato] = s4y.compila_lista(
-                    distinta.giocatori, lato, al_giocatore=lambda e, lato=lato: al_giocatore(lato, e))
+                    distinta.giocatori, lato, al_giocatore=lambda e, lato=lato: al_giocatore(lato, e),
+                    aggiunti=aggiunti[lato])
+            avanzamento("Controllo finale delle Liste Gara…")
+            for lato, distinta in squadre.items():
+                if liberate[lato]:
+                    risultato.report[lato].avvisi.append(
+                        f"{liberate[lato]} righe contenevano dati diversi (es. da una prova precedente) e sono state corrette.")
+                if riparate := s4y.verifica_e_ripara(distinta.giocatori, lato):
+                    risultato.report[lato].avvisi.append(f"{riparate} righe ripristinate nel controllo finale.")
+            if s4y.messaggi_portale:
+                avanzamento("Messaggi del portale: " + " | ".join(dict.fromkeys(s4y.messaggi_portale)))
             avanzamento("Salvataggio (Salva Tutto)…")
             risultato.bottone_salvataggio = s4y.salva()
             avanzamento("Referto salvato.")

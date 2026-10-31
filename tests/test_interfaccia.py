@@ -132,3 +132,39 @@ def test_compilazione_dalla_pagina(page):
     assert page.locator("#screenshot").evaluate("img => img.complete && img.naturalWidth > 0")
     page.click("#torna")
     assert page.locator("#revisione").is_visible()
+
+
+def test_casella_r_arriva_alla_compilazione(page):
+    """Se nella tabella l'arbitro cambia titolari e riserve con la casella R, la compilazione
+    deve ricevere i valori cambiati."""
+    carica(page, "casa", "casa.jpg", b"casa.jpg")
+    carica(page, "ospite", "ospite.jpg", b"ospite.jpg")
+    page.click("#prosegui")
+    page.locator("#revisione").wait_for()
+    page.locator("#tabella-casa input[data-k=riserva]").nth(1).click()    # BIANCHI: da riserva a titolare
+    page.locator("#tabella-ospite input[data-k=riserva]").nth(0).click()  # VERDI: da titolare a riserva
+    inviato = {}
+    page.route("**/api/compila", lambda route: (inviato.update(json.loads(route.request.post_data)),
+                                                route.fulfill(status=409, json={"detail": "prova"})))
+    page.fill("#gara", "sarego")
+    page.on("dialog", lambda d: d.accept())
+    page.click("#avvia")
+    page.wait_for_timeout(500)
+    assert [g["riserva"] for g in inviato["casa"]["giocatori"]] == [False, False]
+    assert [g["riserva"] for g in inviato["ospite"]["giocatori"]] == [True, False]
+
+
+def test_piu_di_11_titolari_blocca_la_compilazione(page):
+    carica(page, "casa", "casa.jpg", b"casa.jpg")
+    carica(page, "ospite", "ospite.jpg", b"ospite.jpg")
+    page.click("#prosegui")
+    page.locator("#revisione").wait_for()
+    page.evaluate("""() => { for (let i = 0; i < 12; i++) dati.casa.distinta.giocatori.push(
+        {...dati.casa.distinta.giocatori[0], numero: 20 + i, riserva: false}); }""")
+    messaggi = []
+    page.on("dialog", lambda d: (messaggi.append(d.message), d.accept()))
+    page.fill("#gara", "sarego")
+    page.click("#avvia")
+    page.wait_for_timeout(300)
+    assert messaggi and "13 titolari" in messaggi[0]
+    assert page.locator("#compilazione").is_hidden()

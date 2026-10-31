@@ -68,6 +68,12 @@ GARE = f"""<div class="box"><div class="titolo">Gestione Referti</div>
 <tr><td>11/10/2026</td><td>SAN GIOVANNI ILARIONE<br>SAREGO LIONA ACADEMY</td>
     <td><a href="dettaglio.asp"><img src="/img/info.png" width="16" height="16"></a>
         <a href="nuovo_inserimento/default.asp">{_ICONA.format('/img/ico_add.png')}</a></td></tr>
+<tr><td>31/10/2026</td><td>CALCIO TEZZE<br>BRENDOLA</td>
+    <td><img src="/img/ico_verde_32.png" width="16" height="16" style="cursor:pointer"
+         onclick="location.href='nuovo_inserimento/default.asp'"></td></tr>
+<tr><td>17/10/2026</td><td>CALCIO TEZZE<br>ALTAVILLA</td>
+    <td><a href="dettaglio.asp">{_ICONA.format('/img/info.png')}</a>
+        <a href="stampa.asp">{_ICONA.format('/img/pdf.png')}</a></td></tr>
 <tr><td>04/10/2026</td><td>MONTECCHIO S.PIETRO<br>SAN VITALE 1995</td>
     <td><a href="dettaglio.asp">{_ICONA.format('/img/info.png')}</a>
         <a href="stampa.asp">{_ICONA.format('/img/pdf.png')}</a></td></tr></table></div>"""
@@ -123,11 +129,21 @@ LISTE = f"""{_schede('Liste Gara')}<table style="width:100%"><tr>
 </div>
 <script>
 let lato = null, nuovi = 900, salvato = false, salvatoScheda = false, inviato = false;
+// Come il portale (caso peggiore): lo stesso giocatore non può stare in due righe della stessa squadra.
+document.addEventListener('change', (e) => {{
+  const s = e.target;
+  if (!s.classList.contains('gioc') || !s.value) return;
+  const squadra = s.classList.contains('casa') ? 'casa' : 'ospite';
+  const doppio = [...document.querySelectorAll('select.gioc.' + squadra)].some((o) => o !== s && o.value === s.value);
+  if (doppio) {{ alert('Giocatore già inserito'); s.selectedIndex = 0; }}
+}});
 function apri(l) {{ lato = l; document.getElementById('dlg').style.display = 'block'; }}
 function conferma() {{
   const v = (id) => document.getElementById(id).value;
   const testo = `${{v('c')}} ${{v('n')}} (${{v('d')}} - ID ${{nuovi++}})`;
   document.querySelectorAll('select.gioc.' + lato).forEach((s) => s.add(new Option(testo)));
+  // Come una ricarica della pagina: le scelte non ancora salvate si perdono.
+  document.querySelectorAll('select').forEach((s) => {{ s.selectedIndex = 0; }});
   ['c', 'n', 'd'].forEach((id) => document.getElementById(id).value = '');
   document.getElementById('dlg').style.display = 'none';
 }}

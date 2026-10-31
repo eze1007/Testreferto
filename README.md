@@ -82,7 +82,8 @@ playwright install chromium
 python -m scripts.compila_sinfonia liste_gara.json --gara "SAREGO LIONA"
 ```
 
-`--gara` sono parole che identificano una sola riga nella lista di Gestione Referti. A ogni passo
+`--gara` è il nome (anche parziale) di una o entrambe le squadre, es. "Tezze" o "Tezze vs Brendola":
+parole come "vs" o "contro" sono ignorate e, se più gare corrispondono, vale quella con il "+". A ogni passo
 vengono salvati screenshot e pagina in `esplorazione/`: se qualcosa non funziona servono a capire
 dove. Contengono dati personali.
 
