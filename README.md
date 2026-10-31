@@ -57,7 +57,7 @@ date di nascita mancanti o non valide e ogni campo letto con incertezza.
 
 ## Installazione su Windows
 
-1. Scarica il progetto (su GitHub: branch `claude/relaxed-planck-yatgnx`, Code → Download ZIP) ed
+1. Scarica il progetto (su GitHub: branch `main`, Code → Download ZIP) ed
    estrai la cartella. Serve Python 3.10 o successivo già installato.
 2. Doppio clic su **`installa.bat`**: crea l'ambiente `.venv`, installa le librerie e il browser per
    Sinfonia4You e crea il file `.env` dal modello (se non esiste). Non avvia il programma.
