@@ -121,7 +121,7 @@ def test_percorso_completo(page):
 def test_gara_non_trovata(page):
     s4y = Sinfonia(page)
     s4y.login("arbitro123", "segreta")
-    with pytest.raises(RuntimeError, match="Gare trovate"):
+    with pytest.raises(RuntimeError, match="Nessuna gara trovata"):
         s4y.apri_gara("JUVENTUS")
 
 
@@ -168,3 +168,22 @@ def test_tipo_icona():
     assert tipo("/img/ico_add.png") == "nuovo" and tipo("+") == "nuovo"
     assert tipo("/img/pdf.png stampa.asp?a=1+2") == "pdf"   # un + nell'indirizzo non conta
     assert tipo("/img/info.png") == "info" and tipo("/img/matita.png") == "modifica"
+
+
+@pytest.mark.parametrize("gara", ["Tezze vs Brendola", "tezze", "brendol", "Calcio Tezze - Brendola"])
+def test_ricerca_gara_con_una_parte_del_nome(page, gara):
+    s4y = Sinfonia(page)
+    s4y.login("arbitro123", "segreta")
+    s4y.apri_gara(gara)       # "tezze" trova anche la gara già refertata con ALTAVILLA: vale quella col +
+    assert page.get_by_text("Disputata Regolarmente").is_visible()
+
+
+def test_ricerca_gara_non_trovata_o_ambigua(page):
+    s4y = Sinfonia(page)
+    s4y.login("arbitro123", "segreta")
+    with pytest.raises(RuntimeError, match="Nessuna gara trovata"):
+        s4y.apri_gara("Juventus")
+    page.unroute(portale_finto.BASE + "**")
+    portale_finto.installa(page)
+    with pytest.raises(RuntimeError, match="Più gare da refertare"):
+        s4y.apri_gara("2026")  # corrisponde a due gare con il +

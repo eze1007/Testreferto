@@ -68,6 +68,11 @@ GARE = f"""<div class="box"><div class="titolo">Gestione Referti</div>
 <tr><td>11/10/2026</td><td>SAN GIOVANNI ILARIONE<br>SAREGO LIONA ACADEMY</td>
     <td><a href="dettaglio.asp"><img src="/img/info.png" width="16" height="16"></a>
         <a href="nuovo_inserimento/default.asp">{_ICONA.format('/img/ico_add.png')}</a></td></tr>
+<tr><td>31/10/2026</td><td>CALCIO TEZZE<br>BRENDOLA</td>
+    <td><a href="nuovo_inserimento/default.asp">{_ICONA.format('/img/ico_add.png')}</a></td></tr>
+<tr><td>17/10/2026</td><td>CALCIO TEZZE<br>ALTAVILLA</td>
+    <td><a href="dettaglio.asp">{_ICONA.format('/img/info.png')}</a>
+        <a href="stampa.asp">{_ICONA.format('/img/pdf.png')}</a></td></tr>
 <tr><td>04/10/2026</td><td>MONTECCHIO S.PIETRO<br>SAN VITALE 1995</td>
     <td><a href="dettaglio.asp">{_ICONA.format('/img/info.png')}</a>
         <a href="stampa.asp">{_ICONA.format('/img/pdf.png')}</a></td></tr></table></div>"""

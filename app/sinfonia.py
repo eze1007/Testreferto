@@ -77,6 +77,21 @@ class Report:
     avvisi: list[str] = field(default_factory=list)
 
 
+# Parole che si scrivono tra i nomi delle squadre ma non compaiono nella lista gare.
+PAROLE_IGNORATE = {"VS", "V", "CONTRO", "E", "CON", "GARA", "PARTITA", "DI", "DEL", "LA", "IL"}
+
+
+def parole_gara(testo: str) -> list[str]:
+    return [p for p in re.sub(r"[^A-Z0-9]+", " ", testo.upper()).split() if p not in PAROLE_IGNORATE]
+
+
+def corrisponde(cercate: list[str], testo_riga: str) -> bool:
+    """Ogni parola cercata deve essere l'inizio di una parola della riga: "TEZZE" trova
+    "CALCIO TEZZE", "BRENDOL" trova "BRENDOLA"."""
+    parole_riga = re.sub(r"[^A-Z0-9]+", " ", testo_riga.upper()).split()
+    return all(any(p.startswith(c) for p in parole_riga) for c in cercate)
+
+
 class Sinfonia:
     def __init__(self, page: Page, cartella_debug: Path | None = None):
         self.page = page
@@ -207,23 +222,9 @@ class Sinfonia:
             return "invio"
         return "?"
 
-    def apri_gara(self, gara: str) -> None:
-        self._vai_a_gestione_referti()
-        def parole(testo: str) -> list[str]:
-            return re.sub(r"[^A-Z0-9]+", " ", testo.upper()).split()
-
-        cercate = parole(gara)
-        righe = self.page.locator("tr:not(:has(tr))")
-        trovate = []
-        for i in range(righe.count()):
-            testo = " ".join(parole(righe.nth(i).inner_text()))
-            if all(p in testo for p in cercate):
-                trovate.append(righe.nth(i))
-        if len(trovate) != 1:
-            self.istantanea("lista-gare")
-            raise RuntimeError(f"Gare trovate per '{gara}': {len(trovate)} (serve esattamente 1)")
-        # Icone della riga: "+" (nuovo referto) o matita (referto già iniziato); mai "i", PDF o invio.
-        icone = trovate[0].locator("a:visible, input[type=image]:visible")
+    def _icona_da_premere(self, riga: Locator) -> Locator | None:
+        """Nella riga: il "+" (nuovo referto) o la matita (referto già iniziato); mai "i", PDF o invio."""
+        icone = riga.locator("a:visible, input[type=image]:visible")
         tipi = {}
         for i in range(icone.count()):
             descrizione = icone.nth(i).evaluate(
@@ -231,11 +232,34 @@ class Sinfonia:
                             ...[...el.querySelectorAll('img')].flatMap((m) => [m.src, m.alt, m.title])]
                            .filter(Boolean).join(' ')""")
             tipi.setdefault(self._tipo_icona(descrizione), icone.nth(i))
-        icona = tipi.get("nuovo") or tipi.get("modifica")
-        if icona is None:
+        return tipi.get("nuovo") or tipi.get("modifica")
+
+    def apri_gara(self, gara: str) -> None:
+        """Apre la gara indicata con una o più parole dei nomi delle squadre (es. "Tezze",
+        "Tezze vs Brendola", "brendol"). Se ne corrispondono più di una, sceglie quella da refertare."""
+        self._vai_a_gestione_referti()
+        cercate = parole_gara(gara)
+        if not cercate:
+            raise RuntimeError("Scrivi almeno il nome di una squadra")
+        righe = self.page.locator("tr:not(:has(tr))")
+        trovate = []
+        for i in range(righe.count()):
+            riga = righe.nth(i)
+            testo = riga.inner_text()
+            if corrisponde(cercate, testo):
+                trovate.append((riga, " - ".join(r.strip() for r in testo.splitlines() if r.strip())))
+        if not trovate:
+            self.istantanea("lista-gare")
+            raise RuntimeError(f"Nessuna gara trovata con '{gara}': controlla il nome della squadra")
+        da_refertare = [(r, t, icona) for r, t in trovate if (icona := self._icona_da_premere(r)) is not None]
+        if not da_refertare:
             self.istantanea("lista-gare")
             raise RuntimeError(f"La gara '{gara}' non ha il '+' né la matita: è già refertata o non modificabile")
-        icona.click()
+        if len(da_refertare) > 1:
+            self.istantanea("lista-gare")
+            elenco = "; ".join(t for _, t, _ in da_refertare[:4])
+            raise RuntimeError(f"Più gare da refertare con '{gara}': {elenco}. Aggiungi il nome dell'altra squadra")
+        da_refertare[0][2].click()
         self.page.wait_for_load_state()
         self.chiudi_finestre(500)
         self.istantanea("gara-aperta")
