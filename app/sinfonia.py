@@ -377,11 +377,12 @@ class Sinfonia:
               const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
               const selects = [...document.querySelectorAll('select')].filter(vis);
               selects.forEach((s, i) => s.setAttribute('data-s4y', i));
+              // Il portale scrive "Lista dei Calciatori Titolari." e "Lista dei Calciatori di Riserva."
               const intestazioni = [...document.querySelectorAll('body *')]
                 .filter((el) => vis(el) && el.children.length === 0 &&
-                        /Lista dei Calciatori (Titolari|Riserve)/i.test(el.textContent))
+                        /Lista dei Calciatori (Titolari|Riserve|di Riserva)/i.test(el.textContent))
                 .map((el) => { const r = el.getBoundingClientRect();
-                  return {tipo: /Riserve/i.test(el.textContent) ? 'riserve' : 'titolari',
+                  return {tipo: /Riserv/i.test(el.textContent) ? 'riserve' : 'titolari',
                           x: r.left + scrollX, y: r.top + scrollY}; });
               return {
                 intestazioni,
