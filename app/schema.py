@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 
 class Giocatore(BaseModel):
     testo_originale: str = Field(description="Contenuto della colonna 'Cognome e nome' come stampato, senza sigle (R)/(P)")
-    numero: Optional[int] = Field(description="Numero nella colonna 'N° del Ruolo'; null se illeggibile")
+    numero: Optional[int] = Field(description="Numero di maglia ('N° del Ruolo', oppure l'unica colonna di numeri); null se illeggibile")
     cognome: str = Field(description="Cognome in maiuscolo, come scritto (anche composto, es. 'DAL CERO')")
     nome: str = Field(description="Nome o nomi in maiuscolo, come scritti, senza sigle (R)/(P)")
     data_nascita: Optional[str] = Field(description="Data di nascita in formato GG/MM/AAAA; null se illeggibile")

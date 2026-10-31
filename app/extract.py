@@ -9,6 +9,7 @@ import io
 import json
 import os
 import re
+from datetime import date
 
 import anthropic
 import httpx
@@ -22,20 +23,39 @@ MODEL = "claude-opus-5-5"
 MAX_LATO = 2000
 MAX_BYTES = 4_500_000
 
-SYSTEM_PROMPT = """Leggi distinte di gara del calcio dilettantistico italiano (F.I.G.C. - L.N.D.) \
-fotografate o scansionate da un arbitro.
+SYSTEM_PROMPT = """Leggi distinte di gara del calcio dilettantistico italiano fotografate o \
+scansionate da un arbitro. Ogni società usa il suo modulo: le colonne cambiano di nome e di posizione.
 
 Elenca i calciatori nell'ordine delle righe della distinta, dall'alto in basso, senza riordinarli. \
-Per ogni calciatore estrai: il numero (colonna "N° del Ruolo", non il numero di riga stampato a \
-margine; non è in ordine e nei primi 11 possono esserci numeri alti come 13 o 16), il cognome, \
-il nome e la data di nascita (GG/MM/AAAA). Nella colonna "Cognome e nome" il cognome viene prima del \
-nome; i cognomi possono essere composti (es. "DAL CERO") e i nomi doppi (es. "MATTEO ANTONIO"). \
-Non riportare le sigle nel nome e non includere staff o dirigenti. In `testo_originale` copia \
-il contenuto della colonna "Cognome e nome" così com'è (senza sigle), prima di dividerlo.
+Per ogni calciatore estrai il numero di maglia, il cognome, il nome e la data di nascita.
 
-Riporta i dati esattamente come sono scritti: non correggere i nomi e non inventare valori. Se \
-una lettera o una cifra è incerta, o la divisione tra cognome e nome non è chiara, riporta la \
-lettura più probabile e segnala il dubbio. Ignora le righe vuote e i segni a penna."""
+Numero di maglia:
+- Nel modulo L.N.D. c'è una numerazione di riga stampata fuori dalla tabella, a margine, e dentro \
+la tabella la colonna "N° del Ruolo": il numero di maglia è quello della colonna "N° del Ruolo", \
+spesso scritto a penna.
+- Se dentro la tabella c'è una sola colonna di numeri (es. "N. Maglia", "N°", oppure senza titolo), \
+quella colonna è il numero di maglia, anche se va da 1 in ordine: riportalo, non lasciarlo vuoto.
+- I numeri non sono per forza in ordine: tra i primi 11 possono esserci numeri come 13 o 16.
+
+Data di nascita: riportala sempre come GG/MM/AAAA. Può essere scritta in un'unica cella \
+(05/07/2012, 15.01.12, 15-01-12) o divisa in tre colonne G, M, A. Con l'anno a due cifre usa \
+2000+anno se il risultato non supera l'anno in corso, altrimenti 1900+anno (12 → 2012, 98 → 1998).
+
+Cognome e nome: in `testo_originale` copia il contenuto della cella "Cognome e nome" così com'è, \
+senza sigle come (R) o (P). La divisione tra cognome e nome la fa il programma: non segnalarla \
+mai come dubbio.
+
+Righe da includere e da escludere:
+- Includi i giocatori aggiunti a penna, anche in fondo alla lista o dopo righe vuote, e segnala nei \
+dubbi le lettere incerte della scrittura a mano.
+- Escludi le righe cancellate con una riga sopra il nome: quel giocatore non gioca.
+- Escludi righe vuote, staff, dirigenti e l'assistente dell'arbitro.
+
+Dubbi: riporta i dati come sono scritti, senza correggere i nomi e senza inventare valori. \
+Segnala un dubbio solo quando non riesci davvero a leggere un carattere; non segnalare nulla sul \
+testo stampato e leggibile. Per un numero scritto a mano usa prima il contesto: i numeri di maglia \
+non si ripetono nella stessa distinta, quindi se la lettura alternativa è già usata da un altro \
+giocatore non è un dubbio. Ogni dubbio è una frase breve: cosa è incerto e le letture possibili."""
 
 
 def _prepara_immagine(dati: bytes) -> tuple[bytes, str]:
@@ -76,7 +96,9 @@ def estrai_distinta(dati: bytes, content_type: str, client: anthropic.Anthropic 
     else:
         distinta = _estrai_anthropic(dati, content_type, client or anthropic.Anthropic())
     for g in distinta.giocatori:
-        applica_regola_due_parole(g)
+        g.cognome, g.nome = g.cognome.upper().strip(), g.nome.upper().strip()
+        g.data_nascita = normalizza_data(g.data_nascita)
+        applica_divisione(g)
     applica_regola_titolari(distinta)
     return distinta
 
@@ -172,8 +194,43 @@ def applica_regola_titolari(distinta: Distinta) -> None:
         g.riserva = posizione >= TITOLARI
 
 
-def applica_regola_due_parole(g: Giocatore) -> None:
-    """La distinta stampa prima il cognome: con due sole parole la divisione è sicura."""
-    parole = g.testo_originale.split()
-    if len(parole) == 2:
-        g.cognome, g.nome = parole
+def normalizza_data(data: str | None, anno_corrente: int | None = None) -> str | None:
+    """Porta la data a GG/MM/AAAA: accetta 15.01.12, 15-1-2012, 15/01/12; anno a 2 cifre → 20xx o 19xx."""
+    if not data:
+        return data
+    m = re.fullmatch(r"\s*(\d{1,2})\s*[./\-\s]\s*(\d{1,2})\s*[./\-\s]\s*(\d{2}|\d{4})\s*", data)
+    if not m:
+        return data
+    giorno, mese, anno = int(m[1]), int(m[2]), int(m[3])
+    if anno < 100:
+        anno_corrente = anno_corrente or date.today().year
+        anno += 2000 if 2000 + anno <= anno_corrente else 1900
+    return f"{giorno:02d}/{mese:02d}/{anno}"
+
+
+# Particelle che fanno parte del cognome: DAL CERO, DALLA POZZA, DI BARI, DE ROSSI, VAN DER ...
+PARTICELLE = {"DA", "DAL", "DALL", "DALLA", "DALLE", "DALLO", "DE", "DEL", "DELL", "DELLA", "DELLE", "DELLO",
+              "DEGLI", "DEI", "DI", "D", "LA", "LE", "LO", "LI", "VAN", "VON", "DER", "DEN", "DOS", "DAS",
+              "DU", "MAC", "MC", "SAN", "SANT", "SANTA", "SANTO", "AL", "EL", "BEN", "BIN"}
+
+# Dubbi del modello sulla divisione cognome/nome: la decide il programma, quindi non servono.
+RE_DUBBIO_DIVISIONE = re.compile(r"divisione|cognome\s*/\s*nome|nome (doppio|composto)|cognome (doppio|composto)", re.I)
+
+
+def dividi_cognome_nome(testo: str) -> tuple[str, str] | None:
+    """La distinta stampa prima il cognome. Il cognome è la prima parola, più le eventuali
+    particelle davanti (DAL CERO, DALLA POZZA, DI BARI); il resto è il nome."""
+    parole = testo.upper().split()
+    if len(parole) < 2:
+        return None
+    k = 0
+    while k < len(parole) - 2 and parole[k].rstrip("'") in PARTICELLE:
+        k += 1
+    return " ".join(parole[:k + 1]), " ".join(parole[k + 1:])
+
+
+def applica_divisione(g: Giocatore) -> None:
+    divisione = dividi_cognome_nome(g.testo_originale)
+    if divisione:
+        g.cognome, g.nome = divisione
+    g.dubbi = [d for d in g.dubbi if not RE_DUBBIO_DIVISIONE.search(d)]

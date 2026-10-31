@@ -10,7 +10,7 @@ from PIL import Image
 
 from app import main
 from app.checks import controlla
-from app.extract import LetturaFallita, estrai_distinta
+from app.extract import LetturaFallita, estrai_distinta, normalizza_data
 from app.schema import Distinta, Giocatore
 
 
@@ -49,22 +49,25 @@ def test_avvisi_su_errori_tipici():
     assert "BLU ELSA: data di nascita mancante" in testo
 
 
-def test_regola_due_parole_e_divisione_da_verificare():
+def test_divisione_cognome_nome_decisa_dal_programma():
+    def letto(testo, cognome, nome, dubbi):
+        return Giocatore(testo_originale=testo, numero=1, cognome=cognome, nome=nome, data_nascita="01/01/2012",
+                         dubbi=dubbi)
     letti = [
-        Giocatore(testo_originale="HOXHA GANI", numero=11, cognome="GANI", nome="HOXHA",
-                  data_nascita="16/08/2002", riserva=False, dubbi=[]),
-        Giocatore(testo_originale="AMOAF OBAMFO MICHAEL", numero=5, cognome="AMOAF", nome="OBAMFO MICHAEL",
-                  data_nascita="07/08/2005", riserva=False, dubbi=[]),
-        Giocatore(testo_originale="DAL CERO ALESSANDRO", numero=18, cognome="DAL", nome="CERO",
-                  data_nascita="06/11/2004", riserva=True, dubbi=[]),
+        letto("HOXHA GANI", "GANI", "HOXHA", []),
+        letto("YOADA MOUBARAKA", "YOADA", "MOUBARAKA", ["Divisione tra cognome e nome non certa"]),
+        letto("SPOLADORE TIAGO TESFAHUN", "SPOLADORE TIAGO", "TESFAHUN",
+              ["Divisione tra cognome e nome per nome doppio/composto non certa"]),
+        letto("DAL CERO ALESSANDRO", "DAL", "CERO ALESSANDRO", []),
+        letto("DI BARI ANTONIO", "DI", "BARI ANTONIO", ["seconda lettera del nome poco leggibile"]),
     ]
     risultato = estrai_distinta(b"%PDF", "application/pdf", client=FakeClient(parsed=distinta(letti)))
-    hoxha, amoaf, dal_cero = risultato.giocatori
-    assert (hoxha.cognome, hoxha.nome) == ("HOXHA", "GANI")              # due parole: la prima è il cognome
-    assert (amoaf.cognome, amoaf.nome) == ("AMOAF", "OBAMFO MICHAEL")    # tre parole: resta la lettura
+    assert [(g.cognome, g.nome) for g in risultato.giocatori] == [
+        ("HOXHA", "GANI"), ("YOADA", "MOUBARAKA"), ("SPOLADORE", "TIAGO TESFAHUN"),
+        ("DAL CERO", "ALESSANDRO"), ("DI BARI", "ANTONIO")]
     avvisi = controlla(risultato)
-    assert any("DAL CERO" in a and "divisione cognome/nome" in a for a in avvisi)  # parola persa
-    assert not any("AMOAF" in a for a in avvisi)
+    assert not any("ivisione" in a for a in avvisi)                    # niente falsi allarmi sulla divisione
+    assert any("seconda lettera del nome poco leggibile" in a for a in avvisi)  # i dubbi veri restano
 
 
 def test_primi_11_titolari_qualunque_numero():
@@ -178,3 +181,33 @@ def test_yepapi_errore(monkeypatch):
     monkeypatch.setattr(extract.httpx, "Client", lambda **kw: http)
     with pytest.raises(LetturaFallita, match="401"):
         estrai_distinta(jpeg_grande(), "image/jpeg")
+
+
+def test_date_con_anno_a_due_cifre():
+    assert normalizza_data("15.01.12", 2026) == "15/01/2012"
+    assert normalizza_data("23-08-12", 2026) == "23/08/2012"
+    assert normalizza_data("1/2/98", 2026) == "01/02/1998"
+    assert normalizza_data("05/07/2012", 2026) == "05/07/2012"
+
+
+def test_maiuscole_minuscole_e_date_dopo_la_lettura():
+    letti = [Giocatore(testo_originale="Dalla Pozza Giovanni", numero=15, cognome="Dalla Pozza", nome="Giovanni",
+                       data_nascita="29.07.13", dubbi=[]),
+             Giocatore(testo_originale="Hena Andrea", numero=9, cognome="Andrea", nome="Hena",
+                       data_nascita="29/06/13", dubbi=[])]
+    risultato = estrai_distinta(b"%PDF", "application/pdf", client=FakeClient(parsed=distinta(letti)))
+    dalla_pozza, hena = risultato.giocatori
+    assert (dalla_pozza.cognome, dalla_pozza.nome, dalla_pozza.data_nascita) == ("DALLA POZZA", "GIOVANNI", "29/07/2013")
+    assert (hena.cognome, hena.nome, hena.data_nascita) == ("HENA", "ANDREA", "29/06/2013")
+    assert not any("divisione" in a for a in controlla(risultato))   # "Dalla Pozza" = "DALLA POZZA"
+
+
+def test_aggiunti_a_penna_in_fondo_sono_riserve():
+    # Come la distinta del Brendola: la riga cancellata non viene letta, il 10 e l'11 sono scritti a
+    # penna in fondo alla lista. Titolari = primi 11 della lista, quindi 10 e 11 restano riserve.
+    numeri = [1, 2, 3, 4, 5, 6, 7, 8, 9, 13, 14, 15, 16, 17, 18, 10, 11]
+    letti = [Giocatore(testo_originale=f"GIOCATORE N{n}", numero=n, cognome="GIOCATORE", nome=f"N{n}",
+                       data_nascita="01/01/2012", dubbi=[]) for n in numeri]
+    risultato = estrai_distinta(b"%PDF", "application/pdf", client=FakeClient(parsed=distinta(letti)))
+    assert [g.numero for g in risultato.giocatori if not g.riserva] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 13, 14]
+    assert [g.numero for g in risultato.giocatori if g.riserva] == [15, 16, 17, 18, 10, 11]
