@@ -1,5 +1,7 @@
 """Copia semplificata delle pagine di Sinfonia4You, ricostruita dagli screenshot (dati inventati)."""
 
+import json
+
 from playwright.sync_api import Page, Route
 
 BASE = "https://servizi.aia-figc.it/sinfonia4you/"
@@ -26,10 +28,26 @@ def _scegli(testo: str) -> str:
     return f"""<a href="#" class="voce" onclick="this.classList.add('scelto'); return false">{testo}</a>"""
 
 
+# Come il portale, "Salva Tutto" salva in background con una richiesta a save.asp (qui in ritardo):
+# se il browser si chiude subito dopo il clic, il salvataggio non arriva. Il server finto annota
+# in SALVATAGGI ogni salvataggio ricevuto, con le righe delle sostituzioni della pagina.
+SALVATAGGI: list[dict] = []
+
+_SALVA_SUL_SERVER = """<script>
+function salvaSulServer() {
+  const righe = (c) => [...document.querySelectorAll(`#riepilogo_sostituzioni_${c} > tr`)]
+    .map((tr) => [...tr.querySelectorAll('select')].map((s) => s.selectedOptions[0]?.dataset.numero || s.value))
+    .filter((r) => r[2] && r[2] !== '0');
+  fetch('save.asp', {method: 'POST', body: JSON.stringify({pagina: location.pathname.split('/').pop(),
+                                                           casa: righe('casa'), ospite: righe('fuori')})});
+}
+</script>"""
+
+
 def _barra(successivo: str) -> str:
-    return f"""<div class="barra"><a href="#">Precedente</a>
+    return _SALVA_SUL_SERVER + f"""<div class="barra"><a href="#">Precedente</a>
       <span><a href="#" title="Salva Scheda" onclick="salvatoScheda = true; return false">Salva Scheda</a>
-      <a href="#" title="Salva Tutto" onclick="salvato = true; return false">Salva Tutto</a></span>
+      <a href="#" title="Salva Tutto" onclick="salvato = true; setTimeout(salvaSulServer, 1500); return false">Salva Tutto</a></span>
       <span><a href="#" title="Invia al G.S." onclick="inviato = true; return false">Invia al G.S.</a>
       <a href="#">Stampa</a></span><a href="{successivo}">Successivo</a></div>"""
 
@@ -233,6 +251,9 @@ PAGINE = {
 def installa(page: Page, captcha: bool = False) -> None:
     def gestisci(route: Route) -> None:
         percorso = route.request.url.removeprefix(BASE)
+        if percorso.endswith("save.asp") and route.request.method == "POST":
+            SALVATAGGI.append(json.loads(route.request.post_data or "{}"))
+            return route.fulfill(body="OK", content_type="text/plain")
         if captcha and percorso == "":
             campo = '<input type="text" name="captcha" class="validate[required,custom[S4YCaptcha]]">'
             return route.fulfill(body=f"<html><body>{LOGIN.replace('</form>', campo + '</form>')}</body></html>",
