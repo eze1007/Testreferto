@@ -231,6 +231,7 @@ def test_rapportino_sostituzioni_controllate_e_compilate(page):
     page.wait_for_function("document.querySelectorAll('#sost-casa .avvisi li').length === 1")
 
     page.fill("#gara", "tezze brendola")
+    portale_finto.SALVATAGGI.clear()
     domande = []
     page.once("dialog", lambda d: (domande.append(d.message), d.accept()))
     page.click("#avvia")
@@ -240,6 +241,11 @@ def test_rapportino_sostituzioni_controllate_e_compilate(page):
     assert "Riapertura del referto per le Sostituzioni" in passi and "Sostituzioni salvate" in passi
     assert page.locator("#esiti-casa .esiti-sost .esito").all_inner_texts() == ["Inserita", "Inserita"]
     assert page.locator("#esiti-ospite .esiti-sost .esito").all_inner_texts() == ["Inserita"]
+    # Entrambi i "Salva Tutto" sono arrivati al portale prima che il browser si chiudesse:
+    # prima le Liste Gara, poi le sostituzioni nel referto riaperto.
+    assert [s["pagina"] for s in portale_finto.SALVATAGGI] == ["liste.asp", "default.asp"]
+    assert portale_finto.SALVATAGGI[1]["casa"] == [["1", "20", "1", "12"], ["2", "15", "12", "1"]]
+    assert portale_finto.SALVATAGGI[1]["ospite"] == [["2", "3", "9", "10"]]
 
 
 def test_rapportino_illeggibile(page):

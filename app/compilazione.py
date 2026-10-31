@@ -10,6 +10,7 @@ from playwright.sync_api import Page, sync_playwright
 from .schema import Distinta, Sostituzione
 from .sinfonia import Esito, EsitoSostituzione, Report, Sinfonia
 
+NESSUN_SALVATAGGIO = "Attenzione: dopo «Salva Tutto» il portale non ha inviato il salvataggio. Controlla il referto."
 NOMI_LATO = {"casa": "squadra di casa", "ospite": "squadra ospite"}
 
 
@@ -77,7 +78,7 @@ def compila(
                 avanzamento("Messaggi del portale: " + " | ".join(dict.fromkeys(s4y.messaggi_portale)))
             avanzamento("Salvataggio (Salva Tutto)…")
             risultato.bottone_salvataggio = s4y.salva()
-            avanzamento("Referto salvato.")
+            avanzamento("Referto salvato." if s4y.salvataggi else NESSUN_SALVATAGGIO)
             da_inserire = {lato: elenco for lato, elenco in (sostituzioni or {}).items() if elenco}
             if da_inserire:
                 # Le tendine delle sostituzioni si basano sulle Liste Gara salvate: si riapre il referto.
@@ -90,7 +91,7 @@ def compila(
                         alla_sostituzione(lato, e)
                 avanzamento("Salvataggio delle Sostituzioni (Salva Tutto)…")
                 risultato.bottone_salvataggio = s4y.salva()
-                avanzamento("Sostituzioni salvate.")
+                avanzamento("Sostituzioni salvate." if s4y.salvataggi else NESSUN_SALVATAGGIO)
         except Exception as e:
             risultato.errore = str(e).splitlines()[0] if str(e) else type(e).__name__
             s4y.istantanea("errore")

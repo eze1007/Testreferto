@@ -133,6 +133,7 @@ class Sinfonia:
         # Di norma le richieste di conferma si annullano; si accettano solo dove serve
         # (es. "Aggiungi Sostituzione" oltre il massimo della categoria).
         self.accetta_conferme = False
+        self.salvataggi = 0  # richieste di salvataggio viste dopo l'ultimo "Salva Tutto"
         page.on("dialog", self._dialogo)
 
     def _dialogo(self, d) -> None:
@@ -181,9 +182,36 @@ class Sinfonia:
         self._clicca_bottone("successivo")
 
     def salva(self) -> str:
-        """Preme "Salva Tutto" (mai "Invia al G.S.")."""
+        """Preme "Salva Tutto" (mai "Invia al G.S.") e aspetta che il portale finisca di salvare.
+
+        Il portale salva in background (richieste a save.asp): se subito dopo si chiude il browser
+        o si cambia pagina, il salvataggio si interrompe e i dati vanno persi."""
         self.istantanea("prima-del-salvataggio")
-        etichetta = self._clicca_bottone("salva tutto")
+        inviate = []
+
+        def registra(r) -> None:
+            if r.method == "POST" and "save" in r.url.lower():
+                inviate.append(r)
+
+        self.page.on("request", registra)
+        try:
+            etichetta = self._clicca_bottone("salva tutto")
+            for _ in range(25):  # fino a 5 secondi perché parta il salvataggio
+                if inviate:
+                    break
+                self.page.wait_for_timeout(200)
+            for r in list(inviate):
+                risposta = r.response()  # aspetta che il portale risponda
+                if risposta is None or risposta.status >= 400:
+                    raise RuntimeError(f"Salvataggio non riuscito (risposta {risposta.status if risposta else 'assente'})")
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=20_000)
+            except Exception:
+                pass
+            self.salvataggi = len(inviate)
+        finally:
+            self.page.remove_listener("request", registra)
+        self.chiudi_finestre(1000)  # eventuale "Salvataggio effettuato"
         self.istantanea("dopo-il-salvataggio")
         return etichetta
 
