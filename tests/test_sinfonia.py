@@ -298,7 +298,9 @@ def test_scambio_titolari_riserve_su_referto_gia_salvato(page):
                 zip(range(1, 10), ["UNO", "DUE", "TRE", "QUATTRO", "CINQUE", "SEI", "SETTE", "OTTO", "NOVE"])]
     titolari += [g(10, "DIECI", "ANTONIO", "10/10/2012"), g(11, "UNDICI", "MARCO", "11/11/2012")]
     riserve = [g(13, "TREDICI", "LUCA", "13/01/2012", riserva=True), g(14, "QUATTORDICI", "PAOLO", "14/01/2012", riserva=True)]
-    report = compila_tre_fasi(s4y, titolari + riserve, "ospite")
+    # Nell'ordine della distinta, come arrivano dalla pagina: 13 e 14 al 10° e 11° posto (con la R
+    # messa dall'arbitro), 10 e 11 aggiunti a penna in fondo (R tolta). Conta la R, non la posizione.
+    report = compila_tre_fasi(s4y, titolari[:9] + riserve + titolari[9:], "ospite")
     ospite = leggi_colonna(page, "ospite")
     nomi = [r[1].split(" (")[0] for r in ospite]
     assert nomi[9:11] == ["DIECI ANTONIO", "UNDICI MARCO"]             # ora titolari

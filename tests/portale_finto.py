@@ -203,7 +203,7 @@ def _colonna(lato: str) -> str:
     return (f"""<div class="titolo">{'S.LAZZARO SERENISSIMA' if lato == 'casa' else 'CA 30 CALCIO'}</div>
       <a href="#" onclick="apri('{lato}'); return false">+ AGGIUNGI PERSONA</a>
       <div class="giallo">Lista dei Calciatori Titolari.</div>{''.join(riga(n) for n in range(1, 12))}
-      <div class="giallo">Lista dei Calciatori Riserve.</div>{''.join(riga(n) for n in range(12, 21))}""")
+      <div class="giallo">Lista dei Calciatori di Riserva.</div>{''.join(riga(n) for n in range(12, 21))}""")
 
 
 LISTE = f"""{_schede('Liste Gara')}<table style="width:100%"><tr>
