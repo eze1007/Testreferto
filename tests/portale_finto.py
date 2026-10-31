@@ -129,6 +129,14 @@ LISTE = f"""{_schede('Liste Gara')}<table style="width:100%"><tr>
 </div>
 <script>
 let lato = null, nuovi = 900, salvato = false, salvatoScheda = false, inviato = false;
+// Come il portale (caso peggiore): lo stesso giocatore non può stare in due righe della stessa squadra.
+document.addEventListener('change', (e) => {{
+  const s = e.target;
+  if (!s.classList.contains('gioc') || !s.value) return;
+  const squadra = s.classList.contains('casa') ? 'casa' : 'ospite';
+  const doppio = [...document.querySelectorAll('select.gioc.' + squadra)].some((o) => o !== s && o.value === s.value);
+  if (doppio) {{ alert('Giocatore già inserito'); s.selectedIndex = 0; }}
+}});
 function apri(l) {{ lato = l; document.getElementById('dlg').style.display = 'block'; }}
 function conferma() {{
   const v = (id) => document.getElementById(id).value;

@@ -74,6 +74,7 @@ def page():
 
 
 def compila_tre_fasi(s4y, giocatori, lato):
+    s4y.libera_righe_sbagliate(giocatori, lato)
     aggiunti = s4y.aggiungi_mancanti(giocatori, lato)
     report = s4y.compila_lista(giocatori, lato, aggiunti=aggiunti)
     s4y.verifica_e_ripara(giocatori, lato)
@@ -277,3 +278,33 @@ def test_finestra_aggiungi_con_etichette_e_calendario(page):
     report = compila_tre_fasi(s4y, [g(8, "AMBICA", "MAURIZIO", "15/01/2012")], "ospite")
     assert [e.stato for e in report.esiti] == ["aggiunto"]
     assert leggi_colonna(page, "ospite")[0][1] == "AMBICA MAURIZIO (15/01/2012 - ID 900)"
+
+
+def test_scambio_titolari_riserve_su_referto_gia_salvato(page):
+    """Il caso del Brendola: da una prova precedente il referto ha 13 e 14 tra i titolari e il 10
+    e l'11 tra le riserve. Ora il 10 e l'11 sono titolari e il 13 e il 14 riserve. Il portale non
+    accetta lo stesso giocatore in due righe: bisogna prima liberare le righe e poi rimettere."""
+    s4y = _entra(page)
+    archivio = ["DIECI ANTONIO (10/10/2012 - ID 1)", "UNDICI MARCO (11/11/2012 - ID 2)",
+                "TREDICI LUCA (13/01/2012 - ID 3)", "QUATTORDICI PAOLO (14/01/2012 - ID 4)"]
+    page.evaluate("""(archivio) => {
+        const s = [...document.querySelectorAll('select.gioc.ospite')];
+        s.forEach((sel) => archivio.forEach((t) => sel.add(new Option(t))));
+        const voce = (sel, t) => { sel.selectedIndex = [...sel.options].findIndex((o) => o.text === t); };
+        voce(s[9], archivio[2]);  voce(s[10], archivio[3]);   // titolari 10 e 11: TREDICI e QUATTORDICI
+        voce(s[11], archivio[0]); voce(s[12], archivio[1]);   // prime riserve: DIECI e UNDICI
+    }""", archivio)
+    titolari = [g(n, "TITOLARE", nome, "01/01/2012") for n, nome in
+                zip(range(1, 10), ["UNO", "DUE", "TRE", "QUATTRO", "CINQUE", "SEI", "SETTE", "OTTO", "NOVE"])]
+    titolari += [g(10, "DIECI", "ANTONIO", "10/10/2012"), g(11, "UNDICI", "MARCO", "11/11/2012")]
+    riserve = [g(13, "TREDICI", "LUCA", "13/01/2012", riserva=True), g(14, "QUATTORDICI", "PAOLO", "14/01/2012", riserva=True)]
+    report = compila_tre_fasi(s4y, titolari + riserve, "ospite")
+    ospite = leggi_colonna(page, "ospite")
+    nomi = [r[1].split(" (")[0] for r in ospite]
+    assert nomi[9:11] == ["DIECI ANTONIO", "UNDICI MARCO"]             # ora titolari
+    assert nomi[11:13] == ["TREDICI LUCA", "QUATTORDICI PAOLO"]        # ora riserve
+    assert nomi[13:] == [""] * 7                                       # niente altro nelle riserve
+    assert [ospite[i][0] for i in (9, 10, 11, 12)] == ["10", "11", "13", "14"]
+    stati = {e.giocatore.cognome: e.stato for e in report.esiti}
+    assert stati["DIECI"] == stati["TREDICI"] == "selezionato"         # nessun doppione in archivio
+    assert not any(o.startswith("DIECI ANTONIO (10/10/2012 - ID 9") for o in s4y._opzioni("select.gioc.ospite >> nth=0"))

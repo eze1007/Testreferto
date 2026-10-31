@@ -112,6 +112,9 @@ class Sinfonia:
         self.cartella_debug = cartella_debug
         self._passo = 0
         self._icone_viste: list[str] = []
+        # Gli avvisi del portale (es. "giocatore già inserito") vengono annotati e chiusi.
+        self.messaggi_portale: list[str] = []
+        page.on("dialog", lambda d: (self.messaggi_portale.append(d.message.strip()), d.dismiss()))
 
     # --- utilità -------------------------------------------------------------------------
 
@@ -461,24 +464,55 @@ class Sinfonia:
         if vuota >= 0 and corrente != vuota:
             self.page.select_option(selettore, index=vuota)
 
+    def _scelto(self, selettore: str) -> str:
+        return self.page.locator(selettore).evaluate(
+            "(s) => s.selectedIndex >= 0 ? s.options[s.selectedIndex].text : ''")
+
+    def libera_righe_sbagliate(self, giocatori: list[Giocatore], lato: str) -> int:
+        """Fase 0: toglie i giocatori che stanno nella riga sbagliata (es. salvati da una prova
+        precedente, un titolare finito tra le riserve) e svuota le righe in più. Così poi ognuno
+        può essere messo al suo posto, anche se il portale non accetta lo stesso giocatore in due
+        righe. Restituisce quante righe sono state liberate."""
+        liberate = 0
+        abbinati, _ = self._assegnazioni(giocatori, lato)
+        for g, riga in abbinati:
+            try:
+                r = riga()
+                scelto = self._scelto(r.giocatore)
+                if scelto.strip() and (g is None or scegli_opzione(g, [scelto]).stato != "trovato"):
+                    self._svuota(r.giocatore)
+                    liberate += 1
+            except Exception:
+                continue
+        return liberate
+
+    def _nominativi_colonna(self, lato: str) -> list[str]:
+        """Tutte le voci delle tendine della colonna, comprese quelle già scelte nelle righe
+        (il portale potrebbe non mostrare in una tendina i giocatori già scelti altrove)."""
+        titolari, riserve = self._righe(lato)
+        voci: list[str] = []
+        for r in titolari + riserve:
+            for testo in self._opzioni(r.giocatore):
+                if testo not in voci:
+                    voci.append(testo)
+        return voci
+
     def aggiungi_mancanti(self, giocatori: list[Giocatore], lato: str) -> set[int]:
         """Fase 1: crea in archivio, con "Aggiungi persona", i giocatori che non sono nella tendina.
         Si fa prima di scegliere i nominativi, così un'eventuale ricarica della pagina non cancella
         scelte già fatte. Restituisce gli id dei giocatori aggiunti."""
         titolari, riserve = self._righe(lato)
-        prima = (titolari or riserve or [None])[0]
-        if prima is None:
+        if not titolari and not riserve:
             return set()
-        opzioni = self._opzioni(prima.giocatore)
+        voci = self._nominativi_colonna(lato)
         aggiunti = set()
         for g in giocatori:
-            if scegli_opzione(g, opzioni).stato != "nuovo":
+            if scegli_opzione(g, voci).stato != "nuovo":
                 continue
             try:
                 self._aggiungi_persona(lato, g)
                 aggiunti.add(id(g))
-                t, r = self._righe(lato)
-                opzioni = self._opzioni((t or r)[0].giocatore)
+                voci = self._nominativi_colonna(lato)
             except Exception:
                 pass  # se ne riparla in fase 2: il giocatore risulterà da verificare
         return aggiunti
@@ -548,7 +582,11 @@ class Sinfonia:
                 scelta = scegli_opzione(g, self._opzioni(r.giocatore))
                 if scelta.stato != "trovato":
                     return Esito(g, "da_verificare", "aggiunto ma non trovato nella tendina")
+            prima = len(self.messaggi_portale)
             self.page.select_option(r.giocatore, index=scelta.indice)
+            if scegli_opzione(g, [self._scelto(riga().giocatore)]).stato != "trovato":
+                messaggio = " ".join(self.messaggi_portale[prima:]) or "la scelta non è rimasta"
+                return Esito(g, "errore", f"il portale ha rifiutato la scelta: {messaggio}")
             return Esito(g, "aggiunto" if aggiunto else "selezionato")
         except Exception as e:  # una riga sbagliata non deve fermare le altre
             return Esito(g, "errore", str(e).splitlines()[0])
