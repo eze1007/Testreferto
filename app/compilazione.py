@@ -18,9 +18,38 @@ NOMI_LATO = {"casa": "squadra di casa", "ospite": "squadra ospite"}
 class Risultato:
     report: dict[str, Report] = field(default_factory=dict)
     sostituzioni: dict[str, list[EsitoSostituzione]] = field(default_factory=dict)
+    # Controllo dopo il salvataggio delle sostituzioni: None = non fatto, [] = tutto salvato,
+    # altrimenti i problemi trovati (sostituzioni che sul portale non risultano).
+    verifica: list[str] | None = None
     bottone_salvataggio: str | None = None
     screenshot: bytes | None = None  # pagina finale, oppure il punto in cui si è fermato
     errore: str | None = None
+
+
+def _descrivi(t: tuple[int, int, int, int]) -> str:
+    tempo, minuto, esce, entra = t
+    return f"{minuto}' del {tempo}° t. esce {esce} entra {entra}"
+
+
+def verifica_sostituzioni(s4y: Sinfonia, gara: str, inserite: dict[str, list[EsitoSostituzione]]) -> list[str]:
+    """Riapre il referto senza la copia locale del browser (che il portale mostra al posto dei
+    dati salvati) e controlla che ogni sostituzione inserita risulti davvero salvata.
+    Restituisce i problemi trovati; lista vuota se è tutto a posto."""
+    problemi = []
+    try:
+        s4y.apri_gara(gara, senza_copia_locale=True)
+        s4y.apri_scheda("tabs-Sostituzioni")
+        for lato, esiti in inserite.items():
+            attese = [(e.sostituzione.tempo, e.sostituzione.minuto, e.sostituzione.esce, e.sostituzione.entra)
+                      for e in esiti if e.stato == "inserita"]
+            salvate = s4y.leggi_sostituzioni(lato)
+            if mancanti := [a for a in attese if a not in salvate]:
+                problemi.append(f"{NOMI_LATO[lato]}: sul portale non risultano salvate "
+                                + "; ".join(_descrivi(m) for m in mancanti) + ".")
+        s4y.istantanea("verifica-sostituzioni")
+    except Exception as e:
+        problemi.append(f"verifica non riuscita: {str(e).splitlines()[0] if str(e) else type(e).__name__}")
+    return problemi
 
 
 def compila(
@@ -89,9 +118,20 @@ def compila(
                     risultato.sostituzioni[lato] = esiti = s4y.compila_sostituzioni(elenco, lato)
                     for e in esiti:
                         alla_sostituzione(lato, e)
+                # Le righe rosse (vuote o incomplete) il portale non le salva: si tolgono, di
+                # entrambe le squadre, così parte solo ciò che è completo.
+                tolte = sum(s4y.togli_righe_incomplete(lato) for lato in ("casa", "ospite"))
+                if tolte:
+                    avanzamento(f"Tolte {tolte} righe vuote o incomplete dalla scheda Sostituzioni.")
                 avanzamento("Salvataggio delle Sostituzioni (Salva Tutto)…")
                 risultato.bottone_salvataggio = s4y.salva()
                 avanzamento("Sostituzioni salvate." if s4y.salvataggi else NESSUN_SALVATAGGIO)
+                avanzamento("Verifica: riapro il referto come è salvato sul portale…")
+                risultato.verifica = verifica_sostituzioni(s4y, gara, risultato.sostituzioni)
+                for problema in risultato.verifica:
+                    avanzamento("ATTENZIONE: " + problema)
+                if not risultato.verifica:
+                    avanzamento("Verifica sul portale: tutte le sostituzioni inserite risultano salvate.")
         except Exception as e:
             risultato.errore = str(e).splitlines()[0] if str(e) else type(e).__name__
             s4y.istantanea("errore")

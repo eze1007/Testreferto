@@ -32,12 +32,18 @@ def _scegli(testo: str) -> str:
 # se il browser si chiude subito dopo il clic, il salvataggio non arriva. Il server finto annota
 # in SALVATAGGI ogni salvataggio ricevuto, con le righe delle sostituzioni della pagina.
 SALVATAGGI: list[dict] = []
+# Sostituzioni salvate sul server, per squadra: [tempo, minuto, esce, entra]. All'inizio c'è una
+# sostituzione rimasta da una prova precedente, da togliere. Con PERDI_SALVATAGGI il server
+# risponde OK ma non conserva nulla (per provare la verifica dopo il salvataggio).
+SALVATE_INIZIALI = {"casa": [["1", "3", "2", "12"]], "ospite": []}
+SOSTITUZIONI_SALVATE: dict[str, list] = {}
+PERDI_SALVATAGGI = False
 
 _SALVA_SUL_SERVER = """<script>
 function salvaSulServer() {
   const righe = (c) => [...document.querySelectorAll(`#riepilogo_sostituzioni_${c} > tr`)]
     .map((tr) => [...tr.querySelectorAll('select')].map((s) => s.selectedOptions[0]?.dataset.numero || s.value))
-    .filter((r) => r[2] && r[2] !== '0');
+    .filter((r) => r[2] && r[2] !== '0' && r[3] && r[3] !== '0');  // solo righe complete
   fetch('save.asp', {method: 'POST', body: JSON.stringify({pagina: location.pathname.split('/').pop(),
                                                            casa: righe('casa'), ospite: righe('fuori')})});
 }
@@ -73,7 +79,7 @@ def _tabella_sostituzioni(lato: str, corpo: str) -> str:
       <td>MINUTO <select name="minuto"><option value="0"></option>""" + "".join(
         f'<option value="{m}">{m} min.</option>' for m in range(1, 36)) + """</select></td>
       <td>ESCE <select name="esce"></select></td><td>ENTRA <select name="entra"></select></td></tr>"""
-    return f"""<table><tbody id="riepilogo_sostituzioni_{corpo}">{riga * 7}</tbody>
+    return f"""<table><tbody id="riepilogo_sostituzioni_{corpo}"></tbody>
       <tfoot><tr><td><button id="btn_addsostituzione_{corpo}">Aggiungi Sostituzione</button></td></tr></tfoot></table>
       <template id="riga_{corpo}">{riga}</template>"""
 
@@ -109,23 +115,34 @@ function aggiorna(lato) {{
     }}
   }}
 }}
+// Sostituzioni salvate sul server (le scrive il server finto al posto di __SALVATE__). Come nel
+// portale: se non ce ne sono si propongono 7 righe vuote, altrimenti solo quelle salvate.
+const SALVATE = __SALVATE__;
 for (const lato of ['casa', 'ospite']) {{
   const corpo = document.getElementById('riepilogo_sostituzioni_' + CORPO[lato]);
+  const nuovaRiga = () => corpo.append(document.getElementById('riga_' + CORPO[lato]).content.cloneNode(true));
   corpo.addEventListener('change', () => aggiorna(lato));
-  document.getElementById('btn_addsostituzione_' + CORPO[lato]).addEventListener('click', () => {{
-    if (corpo.children.length >= 7 && !confirm('ATTENZIONE! per questa categoria sono previste: 7 Sostituzioni al massimo.')) return;
-    corpo.append(document.getElementById('riga_' + CORPO[lato]).content.cloneNode(true));
+  corpo.addEventListener('click', (e) => {{
+    const x = e.target.closest('.delsostituzione');
+    if (!x) return;
+    x.closest('tr').remove();
     aggiorna(lato);
   }});
+  document.getElementById('btn_addsostituzione_' + CORPO[lato]).addEventListener('click', () => {{
+    if (corpo.children.length >= 7 && !confirm('ATTENZIONE! per questa categoria sono previste: 7 Sostituzioni al massimo.')) return;
+    nuovaRiga();
+    aggiorna(lato);
+  }});
+  const salvate = SALVATE[lato] || [];
+  for (let i = 0; i < (salvate.length || 7); i++) nuovaRiga();
   aggiorna(lato);
+  salvate.forEach((r, i) => {{
+    const tr = corpo.children[i], base = lato === 'casa' ? 1000 : 2000;
+    tr.querySelector('[name=tempo]').value = r[0]; tr.querySelector('[name=minuto]').value = r[1];
+    tr.querySelector('[name=esce]').value = String(base + Number(r[2])); aggiorna(lato);
+    tr.querySelector('[name=entra]').value = String(base + Number(r[3])); aggiorna(lato);
+  }});
 }}
-// Una sostituzione rimasta da una prova precedente, da togliere.
-(() => {{
-  const tr = document.querySelector('#riepilogo_sostituzioni_casa > tr');
-  tr.querySelector('[name=tempo]').value = '1'; tr.querySelector('[name=minuto]').value = '3';
-  tr.querySelector('[name=esce]').value = '1002'; aggiorna('casa');
-  tr.querySelector('[name=entra]').value = '1012'; aggiorna('casa');
-}})();
 </script>"""
 
 
@@ -249,10 +266,16 @@ PAGINE = {
 
 
 def installa(page: Page, captcha: bool = False) -> None:
+    SOSTITUZIONI_SALVATE.clear()
+    SOSTITUZIONI_SALVATE.update(json.loads(json.dumps(SALVATE_INIZIALI)))
+
     def gestisci(route: Route) -> None:
         percorso = route.request.url.removeprefix(BASE)
         if percorso.endswith("save.asp") and route.request.method == "POST":
-            SALVATAGGI.append(json.loads(route.request.post_data or "{}"))
+            dati = json.loads(route.request.post_data or "{}")
+            SALVATAGGI.append(dati)
+            if dati.get("pagina") == "default.asp" and not PERDI_SALVATAGGI:  # la pagina con le Sostituzioni
+                SOSTITUZIONI_SALVATE.update(casa=dati["casa"], ospite=dati["ospite"])
             return route.fulfill(body="OK", content_type="text/plain")
         if captcha and percorso == "":
             campo = '<input type="text" name="captcha" class="validate[required,custom[S4YCaptcha]]">'
@@ -264,6 +287,7 @@ def installa(page: Page, captcha: bool = False) -> None:
         corpo = PAGINE.get(percorso)
         if corpo is None:
             return route.fulfill(status=404, body="non trovata")
+        corpo = corpo.replace("__SALVATE__", json.dumps(SOSTITUZIONI_SALVATE))
         html = f"""<html><head><meta charset="utf-8">{STILE}</head><body><div class="pagina">
           <div class="testata">ASSOCIAZIONE ITALIANA ARBITRI — Sinfonia4You (COPIA DI PROVA)</div>{corpo}</div></body></html>"""
         route.fulfill(body=html, content_type="text/html")

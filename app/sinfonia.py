@@ -134,6 +134,7 @@ class Sinfonia:
         # (es. "Aggiungi Sostituzione" oltre il massimo della categoria).
         self.accetta_conferme = False
         self.salvataggi = 0  # richieste di salvataggio viste dopo l'ultimo "Salva Tutto"
+        self.risposte_salvataggio: list[str] = []  # cosa ha risposto il portale a ciascuna
         page.on("dialog", self._dialogo)
 
     def _dialogo(self, d) -> None:
@@ -200,15 +201,29 @@ class Sinfonia:
                 if inviate:
                     break
                 self.page.wait_for_timeout(200)
+            self.risposte_salvataggio = []
             for r in list(inviate):
                 risposta = r.response()  # aspetta che il portale risponda
                 if risposta is None or risposta.status >= 400:
                     raise RuntimeError(f"Salvataggio non riuscito (risposta {risposta.status if risposta else 'assente'})")
+                # La pagina scrive «Salvataggio Effettuato» qualunque cosa risponda il portale:
+                # la risposta vera si annota, per capire se qualcosa è stato rifiutato.
+                operazione = re.search(r"operation=(\d+)", r.post_data or "")
+                try:
+                    testo = risposta.text().strip()[:300]
+                except Exception:
+                    testo = "?"
+                self.risposte_salvataggio.append(
+                    f"operation={operazione[1] if operazione else '?'} status={risposta.status} risposta={testo!r}")
             try:
                 self.page.wait_for_load_state("networkidle", timeout=20_000)
             except Exception:
                 pass
             self.salvataggi = len(inviate)
+            if self.cartella_debug:
+                self.cartella_debug.mkdir(parents=True, exist_ok=True)
+                with open(self.cartella_debug / "salvataggi.txt", "a", encoding="utf-8") as f:
+                    f.write("\n".join([f"--- {etichetta.strip()}", *self.risposte_salvataggio]) + "\n")
         finally:
             self.page.remove_listener("request", registra)
         self.chiudi_finestre(1000)  # eventuale "Salvataggio effettuato"
@@ -322,10 +337,16 @@ class Sinfonia:
             return icona(0)
         return None
 
-    def apri_gara(self, gara: str) -> None:
+    def apri_gara(self, gara: str, senza_copia_locale: bool = False) -> None:
         """Apre la gara indicata con una o più parole dei nomi delle squadre (es. "Tezze",
-        "Tezze vs Brendola", "brendol"). Se ne corrispondono più di una, sceglie quella da refertare."""
+        "Tezze vs Brendola", "brendol"). Se ne corrispondono più di una, sceglie quella da refertare.
+
+        Il portale tiene nel browser una copia locale di alcune schede (es. le Sostituzioni) e
+        all'apertura la preferisce a quella salvata. Con senza_copia_locale=True la si cancella
+        prima di aprire, così si vede ciò che è davvero salvato sul portale."""
         self._vai_a_gestione_referti()
+        if senza_copia_locale:
+            self.page.evaluate("() => { try { localStorage.clear(); } catch (e) {} }")
         cercate = parole_gara(gara)
         if not cercate:
             raise RuntimeError("Scrivi almeno il nome di una squadra")
@@ -618,10 +639,54 @@ class Sinfonia:
     # --- sostituzioni -------------------------------------------------------------------
 
     def apri_scheda(self, ancora: str) -> None:
-        """Passa a una scheda del referto (es. "tabs-Sostituzioni") senza salvare nulla."""
+        """Passa a una scheda del referto (es. "tabs-Sostituzioni") senza salvare nulla, dopo che il
+        portale ha finito di caricare i dati del referto."""
         self.page.locator(f"a[href='#{ancora}']").first.click()
         self.page.locator(f"#{ancora}").wait_for(state="visible")
+        try:
+            self.page.wait_for_load_state("networkidle", timeout=15_000)
+        except Exception:
+            pass
         self.chiudi_finestre(300)
+
+    def _righe_sostituzioni(self, lato: str) -> Locator:
+        return self.page.locator(f"{TABELLA_SOSTITUZIONI[lato]} > tr")
+
+    def togli_righe_incomplete(self, lato: str) -> int:
+        """Toglie con la X della riga le sostituzioni incomplete (bordo rosso: manca chi esce o chi
+        entra), comprese le righe vuote che il portale propone. Il portale non le salva («i dati
+        contrassegnati dall'etichetta rossa non sono stati salvati») e le manderebbe insieme a
+        quelle buone. Restituisce quante righe ha tolto."""
+        righe = self._righe_sostituzioni(lato)
+        tolte = 0
+        for k in reversed(range(righe.count())):
+            riga = righe.nth(k)
+            valori = [riga.locator(f"select[name={n}]").input_value() for n in ("esce", "entra")]
+            if all(v not in ("", "0") for v in valori):
+                continue
+            prima = righe.count()
+            self.accetta_conferme = True  # se il portale chiede conferma, è quello che vogliamo
+            try:
+                riga.locator("button.delsostituzione, .delsostituzione").first.click()
+                self.page.wait_for_function("([sel, n]) => document.querySelectorAll(sel).length < n",
+                                            arg=[f"{TABELLA_SOSTITUZIONI[lato]} > tr", prima], timeout=5_000)
+                tolte += 1
+            except Exception:
+                pass  # resta: verrà segnalata dalla verifica se dà problemi
+            finally:
+                self.accetta_conferme = False
+        return tolte
+
+    def leggi_sostituzioni(self, lato: str) -> list[tuple[int, int, int, int]]:
+        """(tempo, minuto, numero che esce, numero che entra) delle righe complete della scheda."""
+        righe = self.page.evaluate(
+            """(sel) => [...document.querySelectorAll(sel)].map((tr) => {
+                 const v = (n) => tr.querySelector(`select[name=${n}]`);
+                 const numero = (n) => (v(n)?.selectedOptions[0]?.dataset.numero) || '0';
+                 return [v('tempo')?.value || '0', v('minuto')?.value || '0', numero('esce'), numero('entra')];
+               })""", f"{TABELLA_SOSTITUZIONI[lato]} > tr")
+        return [tuple(int(x) for x in r) for r in righe
+                if all(str(x).isdigit() and int(x) > 0 for x in r)]
 
     def _scegli_in_riga(self, riga: Locator, nome: str, valore: str | None = None,
                         numero: int | None = None) -> None:
@@ -648,8 +713,10 @@ class Sinfonia:
         di tempo. Le righe già compilate (es. da una prova precedente) prima si svuotano. Una
         sostituzione che il portale non accetta resta fuori e viene segnalata."""
         self.apri_scheda("tabs-Sostituzioni")
-        righe = self.page.locator(f"{TABELLA_SOSTITUZIONI[lato]} > tr")
-        righe.first.locator("select[name=esce]").wait_for()
+        righe = self._righe_sostituzioni(lato)
+        self.page.locator(TABELLA_SOSTITUZIONI[lato]).wait_for(state="attached")
+        if righe.count():
+            righe.first.locator("select[name=esce]").wait_for()
         for k in reversed(range(righe.count())):  # dall'ultima, così le tendine restano coerenti
             for nome in ("entra", "esce"):
                 tendina = righe.nth(k).locator(f"select[name={nome}]")

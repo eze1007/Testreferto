@@ -106,6 +106,7 @@
   .esito.inserita { background:#dcfce7; color:#14532d; }
   @media (prefers-color-scheme: dark) { .esito.inserita { background:#14361f; color:#86efac; } }
   .esiti h3 { font-size:14px; margin:14px 0 4px; color:var(--muted); }
+  .nota-verifica { font-size:13px; color:var(--muted); margin:8px 0 0; }
 
   /* Telefono: il nome va sotto il cognome, così entrambi hanno tutta la larghezza */
   @media (max-width: 760px) {
@@ -493,9 +494,17 @@ async function segui(id) {
 
   const problemi = LATI.flatMap((l) => s.esiti[l]).filter((e) => e.stato === "da_verificare" || e.stato === "errore").length;
   const sostNo = LATI.flatMap((l) => (s.sostituzioni || {})[l] || []).filter((e) => e.stato === "errore").length;
+  const verificate = Array.isArray(s.verifica) && !s.verifica.length;
+  const verifica = !Array.isArray(s.verifica) ? "" : s.verifica.length
+    ? `<div class="errore" style="margin-top:8px"><strong>Le sostituzioni non risultano tutte salvate sul portale:</strong>
+       <ul>${s.verifica.map((v) => `<li>${esc(v)}</li>`).join("")}</ul></div>`
+    : `<p class="nota-verifica">Se nel tuo browser la scheda appare come «Sostituzioni *» o vuota, stai vedendo una copia
+       locale vecchia che Sinfonia tiene nel browser: apri il referto in una finestra anonima, oppure cancella i dati del
+       sito servizi.aia-figc.it. Non premere «Salva» in una finestra che mostra le righe vuote.</p>`;
   $("#esito-finale").innerHTML = s.stato === "completato"
     ? `<div class="ok">Referto salvato con «${esc(s.bottone)}».${problemi ? ` ${problemi} giocatori da sistemare a mano.` : ""}` +
-      `${sostNo ? ` ${sostNo} sostituzioni non inserite: sistemale a mano.` : ""}</div>`
+      `${sostNo ? ` ${sostNo} sostituzioni non inserite: sistemale a mano.` : ""}` +
+      `${verificate ? " Sostituzioni verificate sul portale." : ""}</div>${verifica}`
     : `<div class="errore">Compilazione interrotta: ${esc(s.errore)}<br>Controlla lo screenshot qui sotto.</div>`;
   if (s.screenshot) {
     $("#screenshot").src = `/api/compila/${id}/screenshot?t=${Date.now()}`;

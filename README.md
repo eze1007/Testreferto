@@ -31,6 +31,17 @@ Il programma fa tre cose:
    precedente vengono tolte; oltre le 7 righe si usa «Aggiungi Sostituzione». Una sostituzione che
    il portale non accetta (es. il numero non è tra quelli che possono uscire) non viene inserita e
    la pagina dice perché.
+   Prima di salvare si tolgono le righe vuote o incomplete (bordo rosso), che il portale non salva.
+   Dopo il salvataggio il referto viene riaperto **senza la copia locale del browser** e le
+   sostituzioni lette dal portale vengono confrontate con quelle inserite: la pagina dice se sono
+   tutte salvate o quali mancano.
+
+   **Attenzione alla copia locale di Sinfonia.** Il portale tiene nel browser una copia della
+   scheda Sostituzioni e, riaprendo il referto, mostra quella invece dei dati salvati. Se avevi
+   aperto il referto nel tuo browser prima che il programma salvasse, vedi le righe vuote di allora
+   (la scheda si chiama «Sostituzioni *»). Per vedere i dati veri apri il referto in una finestra
+   anonima, oppure cancella i dati del sito servizi.aia-figc.it. Non premere «Salva» in una finestra
+   che mostra le righe vuote: sovrascriveresti le sostituzioni salvate.
 
 Regole della compilazione (`app/sinfonia.py`):
 

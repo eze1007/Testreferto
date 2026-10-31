@@ -337,7 +337,7 @@ def test_sostituzioni_in_ordine_con_rientro_ed_errori(page):
         sost(2, 25, 7, 18),
         sost(1, 25, 6, 17),      # prima in ordine di tempo
         sost(2, 30, 17, 6),      # rientro del 6 ("* 6 - ..." nella tendina ENTRA)
-        sost(2, 5, 99, 12),      # il 99 non c'è: non inserita
+        sost(2, 33, 99, 12),     # il 99 non c'è: non inserita (ultima in ordine di tempo)
         sost(None, 10, 3, 13),   # incompleta: non inserita
     ]
     esiti = s4y.compila_sostituzioni(elenco, "casa")
@@ -347,10 +347,18 @@ def test_sostituzioni_in_ordine_con_rientro_ed_errori(page):
     # La riga rimasta da una prova precedente (esce 2, entra 12) è stata tolta.
     assert leggi_sostituzioni(page, "casa") == [["1", "25", "6", "17"], ["2", "25", "7", "18"], ["2", "30", "17", "6"]]
     assert leggi_sostituzioni(page, "fuori") == []  # ospite intatta
-    # Le righe libere (anche quella usata dal tentativo scartato) restano con tempo e minuto vuoti.
+    # La riga usata dal tentativo scartato torna com'era: tempo e minuto vuoti.
     quarta = page.locator("#riepilogo_sostituzioni_casa > tr").nth(3)
     assert [quarta.locator(f"[name={n}]").input_value() for n in ("tempo", "minuto", "esce", "entra")] == ["0"] * 4
     assert page.evaluate("[salvato, inviato]") == [False, False]  # il salvataggio lo decide la procedura
+
+    # Prima di salvare si tolgono le righe incomplete (rosse), di entrambe le squadre: il portale
+    # non le salva. Le righe complete restano.
+    assert s4y.togli_righe_incomplete("casa") == 1
+    assert s4y.togli_righe_incomplete("ospite") == 7   # le 7 righe vuote proposte dal portale
+    assert page.locator("#riepilogo_sostituzioni_casa > tr").count() == 3
+    assert s4y.leggi_sostituzioni("casa") == [(1, 25, 6, 17), (2, 25, 7, 18), (2, 30, 17, 6)]
+    assert s4y.leggi_sostituzioni("ospite") == []
 
 
 def test_piu_di_sette_sostituzioni_aggiunge_righe(page):
