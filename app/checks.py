@@ -30,7 +30,7 @@ def controlla(distinta: Distinta) -> list[str]:
             avvisi.append(f"{chi}: numero mancante.")
         if not g.cognome or not g.nome:
             avvisi.append(f"{chi}: cognome o nome mancante.")
-        if g.testo_originale and g.testo_originale.split() != f"{g.cognome} {g.nome}".split():
+        if g.testo_originale and g.testo_originale.upper().split() != f"{g.cognome} {g.nome}".upper().split():
             avvisi.append(f"{chi}: divisione cognome/nome da verificare (sulla distinta: {g.testo_originale}).")
         if g.data_nascita is None:
             avvisi.append(f"{chi}: data di nascita mancante.")

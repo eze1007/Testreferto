@@ -10,7 +10,7 @@ from PIL import Image
 
 from app import main
 from app.checks import controlla
-from app.extract import LetturaFallita, estrai_distinta
+from app.extract import LetturaFallita, estrai_distinta, normalizza_data
 from app.schema import Distinta, Giocatore
 
 
@@ -178,3 +178,22 @@ def test_yepapi_errore(monkeypatch):
     monkeypatch.setattr(extract.httpx, "Client", lambda **kw: http)
     with pytest.raises(LetturaFallita, match="401"):
         estrai_distinta(jpeg_grande(), "image/jpeg")
+
+
+def test_date_con_anno_a_due_cifre():
+    assert normalizza_data("15.01.12", 2026) == "15/01/2012"
+    assert normalizza_data("23-08-12", 2026) == "23/08/2012"
+    assert normalizza_data("1/2/98", 2026) == "01/02/1998"
+    assert normalizza_data("05/07/2012", 2026) == "05/07/2012"
+
+
+def test_maiuscole_minuscole_e_date_dopo_la_lettura():
+    letti = [Giocatore(testo_originale="Dalla Pozza Giovanni", numero=15, cognome="Dalla Pozza", nome="Giovanni",
+                       data_nascita="29.07.13", dubbi=[]),
+             Giocatore(testo_originale="Hena Andrea", numero=9, cognome="Andrea", nome="Hena",
+                       data_nascita="29/06/13", dubbi=[])]
+    risultato = estrai_distinta(b"%PDF", "application/pdf", client=FakeClient(parsed=distinta(letti)))
+    dalla_pozza, hena = risultato.giocatori
+    assert (dalla_pozza.cognome, dalla_pozza.nome, dalla_pozza.data_nascita) == ("DALLA POZZA", "GIOVANNI", "29/07/2013")
+    assert (hena.cognome, hena.nome, hena.data_nascita) == ("HENA", "ANDREA", "29/06/2013")
+    assert not any("divisione" in a for a in controlla(risultato))   # "Dalla Pozza" = "DALLA POZZA"

@@ -46,6 +46,8 @@ date di nascita mancanti o non valide e ogni campo letto con incertezza.
    Sinfonia4You e crea il file `.env` dal modello (se non esiste). Non avvia il programma.
 3. Apri `.env` con il Blocco note e scrivi le chiavi.
 4. Quando vuoi usarlo: doppio clic su **`avvia.bat`**, si apre http://localhost:8000.
+5. Per passare all'ultima versione: doppio clic su **`aggiorna.bat`** (scarica da GitHub e
+   sostituisce i file; non tocca `.env`, `.venv` ed `esplorazione`).
 
 ## Avvio (Linux / macOS)
 

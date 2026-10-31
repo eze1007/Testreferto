@@ -1,0 +1,104 @@
+[
+ {
+  "numero": 1,
+  "cognome": "DI BARI",
+  "nome": "ANTONIO",
+  "data_nascita": "05/07/2012"
+ },
+ {
+  "numero": 2,
+  "cognome": "DARDANO",
+  "nome": "NICHOLAS",
+  "data_nascita": "13/02/2012"
+ },
+ {
+  "numero": 3,
+  "cognome": "MARAN",
+  "nome": "LEONARDO",
+  "data_nascita": "07/11/2012"
+ },
+ {
+  "numero": 4,
+  "cognome": "LOTTO",
+  "nome": "MARCO",
+  "data_nascita": "12/02/2012"
+ },
+ {
+  "numero": 5,
+  "cognome": "YOADA",
+  "nome": "MOUBARAKA",
+  "data_nascita": "03/09/2012"
+ },
+ {
+  "numero": 6,
+  "cognome": "BISOGNIN",
+  "nome": "LORENZO",
+  "data_nascita": "26/06/2012"
+ },
+ {
+  "numero": 7,
+  "cognome": "BERTOLDO",
+  "nome": "MATHIAS",
+  "data_nascita": "28/08/2012"
+ },
+ {
+  "numero": 8,
+  "cognome": "MAZZOCCO",
+  "nome": "NICOLO",
+  "data_nascita": "26/09/2012"
+ },
+ {
+  "numero": 9,
+  "cognome": "VINCEA",
+  "nome": "PAOLO",
+  "data_nascita": "15/11/2012"
+ },
+ {
+  "numero": 13,
+  "cognome": "ASSALINI",
+  "nome": "GIOELE",
+  "data_nascita": "25/12/2012"
+ },
+ {
+  "numero": 14,
+  "cognome": "STANZIONE",
+  "nome": "DAVIDE",
+  "data_nascita": "02/06/2012"
+ },
+ {
+  "numero": 15,
+  "cognome": "SPOLADORE",
+  "nome": "TIAGO TESFAHUN",
+  "data_nascita": "02/10/2012"
+ },
+ {
+  "numero": 16,
+  "cognome": "MASSAUA",
+  "nome": "SAMUELE",
+  "data_nascita": "03/07/2012"
+ },
+ {
+  "numero": 17,
+  "cognome": "TRONCON",
+  "nome": "GIOVANNI",
+  "data_nascita": "14/08/2012"
+ },
+ {
+  "numero": 18,
+  "cognome": "MILANESE",
+  "nome": "ANDREA",
+  "data_nascita": "01/11/2012"
+ },
+ {
+  "numero": 10,
+  "cognome": "AMB?A (a mano, incerto)",
+  "nome": "MAURIZIO",
+  "data_nascita": "15/01/2012"
+ },
+ {
+  "numero": 11,
+  "cognome": "BANS? (a mano, incerto)",
+  "nome": "ADAMA ISSA",
+  "data_nascita": "23/08/2012"
+ }
+]
