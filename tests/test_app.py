@@ -49,22 +49,25 @@ def test_avvisi_su_errori_tipici():
     assert "BLU ELSA: data di nascita mancante" in testo
 
 
-def test_regola_due_parole_e_divisione_da_verificare():
+def test_divisione_cognome_nome_decisa_dal_programma():
+    def letto(testo, cognome, nome, dubbi):
+        return Giocatore(testo_originale=testo, numero=1, cognome=cognome, nome=nome, data_nascita="01/01/2012",
+                         dubbi=dubbi)
     letti = [
-        Giocatore(testo_originale="HOXHA GANI", numero=11, cognome="GANI", nome="HOXHA",
-                  data_nascita="16/08/2002", riserva=False, dubbi=[]),
-        Giocatore(testo_originale="AMOAF OBAMFO MICHAEL", numero=5, cognome="AMOAF", nome="OBAMFO MICHAEL",
-                  data_nascita="07/08/2005", riserva=False, dubbi=[]),
-        Giocatore(testo_originale="DAL CERO ALESSANDRO", numero=18, cognome="DAL", nome="CERO",
-                  data_nascita="06/11/2004", riserva=True, dubbi=[]),
+        letto("HOXHA GANI", "GANI", "HOXHA", []),
+        letto("YOADA MOUBARAKA", "YOADA", "MOUBARAKA", ["Divisione tra cognome e nome non certa"]),
+        letto("SPOLADORE TIAGO TESFAHUN", "SPOLADORE TIAGO", "TESFAHUN",
+              ["Divisione tra cognome e nome per nome doppio/composto non certa"]),
+        letto("DAL CERO ALESSANDRO", "DAL", "CERO ALESSANDRO", []),
+        letto("DI BARI ANTONIO", "DI", "BARI ANTONIO", ["seconda lettera del nome poco leggibile"]),
     ]
     risultato = estrai_distinta(b"%PDF", "application/pdf", client=FakeClient(parsed=distinta(letti)))
-    hoxha, amoaf, dal_cero = risultato.giocatori
-    assert (hoxha.cognome, hoxha.nome) == ("HOXHA", "GANI")              # due parole: la prima è il cognome
-    assert (amoaf.cognome, amoaf.nome) == ("AMOAF", "OBAMFO MICHAEL")    # tre parole: resta la lettura
+    assert [(g.cognome, g.nome) for g in risultato.giocatori] == [
+        ("HOXHA", "GANI"), ("YOADA", "MOUBARAKA"), ("SPOLADORE", "TIAGO TESFAHUN"),
+        ("DAL CERO", "ALESSANDRO"), ("DI BARI", "ANTONIO")]
     avvisi = controlla(risultato)
-    assert any("DAL CERO" in a and "divisione cognome/nome" in a for a in avvisi)  # parola persa
-    assert not any("AMOAF" in a for a in avvisi)
+    assert not any("ivisione" in a for a in avvisi)                    # niente falsi allarmi sulla divisione
+    assert any("seconda lettera del nome poco leggibile" in a for a in avvisi)  # i dubbi veri restano
 
 
 def test_primi_11_titolari_qualunque_numero():

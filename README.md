@@ -31,9 +31,9 @@ Regole della compilazione (`app/sinfonia.py`):
 Titolari e riserve si decidono dalla posizione nella lista, non dal numero di maglia: i primi 11
 giocatori sono titolari (anche con numeri come 13 o 16), dal 12° in poi riserve.
 
-La distinta stampa prima il cognome: se la colonna "Cognome e nome" ha due parole, la prima è il
-cognome e la seconda il nome. Con tre o più parole vale la lettura del modello, e se cognome +
-nome non ricompongono il testo stampato il giocatore viene segnalato.
+La divisione tra cognome e nome la fa il programma, non il modello: la distinta stampa prima il
+cognome, quindi il cognome è la prima parola più le eventuali particelle davanti (DAL CERO, DALLA
+POZZA, DI BARI) e il resto è il nome (GRIGATO / MATTEO ANTONIO). Nessun avviso sulla divisione.
 
 I controlli sulla distinta (`app/checks.py`) segnalano numeri ripetuti o mancanti, nomi doppi,
 date di nascita mancanti o non valide e ogni campo letto con incertezza.
