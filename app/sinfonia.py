@@ -10,6 +10,7 @@ con "Aggiungi persona". Documenti e capitano non vengono toccati. Alla fine si p
 "Salva Tutto"; "Invia al G.S." non viene mai premuto.
 """
 
+import itertools
 import re
 import unicodedata
 from collections.abc import Callable
@@ -77,6 +78,8 @@ class Report:
     avvisi: list[str] = field(default_factory=list)
 
 
+_contatore = itertools.count()
+
 # Parole che si scrivono tra i nomi delle squadre ma non compaiono nella lista gare.
 PAROLE_IGNORATE = {"VS", "V", "CONTRO", "E", "CON", "GARA", "PARTITA", "DI", "DEL", "LA", "IL"}
 
@@ -108,6 +111,7 @@ class Sinfonia:
         self.page.set_default_timeout(TIMEOUT_MS)
         self.cartella_debug = cartella_debug
         self._passo = 0
+        self._icone_viste: list[str] = []
 
     # --- utilità -------------------------------------------------------------------------
 
@@ -233,16 +237,33 @@ class Sinfonia:
         return "?"
 
     def _icona_da_premere(self, riga: Locator) -> Locator | None:
-        """Nella riga: il "+" (nuovo referto) o la matita (referto già iniziato); mai "i", PDF o invio."""
-        icone = riga.locator("a:visible, input[type=image]:visible")
-        tipi = {}
-        for i in range(icone.count()):
-            descrizione = icone.nth(i).evaluate(
-                """(el) => [el.getAttribute('href'), el.getAttribute('onclick'), el.title, el.alt, el.src,
+        """Nella cella Azioni (l'ultima della riga): il "+" (nuovo referto) o la matita (referto già
+        iniziato); mai "i", PDF o invio. Le icone possono essere link, bottoni o immagini cliccabili:
+        se non si riconosce il tipo ma l'icona è l'unica della cella, è il "+" delle gare da refertare."""
+        celle = riga.locator("td")
+        cella = celle.last if celle.count() else riga
+        segno = f"i{next(_contatore)}"
+        descrizioni = cella.evaluate(
+            """(cella, segno) => {
+                const visibile = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+                const tutti = [...cella.querySelectorAll('a, button, input[type=image], img, [onclick]')].filter(visibile);
+                const icone = tutti.filter((el) => !tutti.some((altro) => altro !== el && altro.contains(el)));
+                return icone.map((el, i) => {
+                    el.setAttribute('data-s4y-icona', segno + '-' + i);
+                    return [el.getAttribute('href'), el.getAttribute('onclick'), el.title, el.alt, el.src, el.className,
                             ...[...el.querySelectorAll('img')].flatMap((m) => [m.src, m.alt, m.title])]
-                           .filter(Boolean).join(' ')""")
-            tipi.setdefault(self._tipo_icona(descrizione), icone.nth(i))
-        return tipi.get("nuovo") or tipi.get("modifica")
+                           .filter(Boolean).join(' ');
+                });
+            }""", segno)
+        self._icone_viste = descrizioni
+        tipi = [self._tipo_icona(d) for d in descrizioni]
+        icona = lambda i: cella.locator(f"[data-s4y-icona='{segno}-{i}']")
+        for voluto in ("nuovo", "modifica"):
+            if voluto in tipi:
+                return icona(tipi.index(voluto))
+        if len(tipi) == 1 and tipi[0] == "?":
+            return icona(0)
+        return None
 
     def apri_gara(self, gara: str) -> None:
         """Apre la gara indicata con una o più parole dei nomi delle squadre (es. "Tezze",
@@ -264,7 +285,9 @@ class Sinfonia:
         da_refertare = [(r, t, icona) for r, t in trovate if (icona := self._icona_da_premere(r)) is not None]
         if not da_refertare:
             self.istantanea("lista-gare")
-            raise RuntimeError(f"La gara '{gara}' non ha il '+' né la matita: è già refertata o non modificabile")
+            icone = " | ".join(self._icone_viste) or "nessuna"
+            raise RuntimeError(f"La gara '{gara}' non ha il '+' né la matita: è già refertata o non modificabile "
+                               f"(icone viste nell'ultima riga: {icone[:300]})")
         if len(da_refertare) > 1:
             self.istantanea("lista-gare")
             elenco = "; ".join(t for _, t, _ in da_refertare[:4])
