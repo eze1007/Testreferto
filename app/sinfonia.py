@@ -389,37 +389,88 @@ class Sinfonia:
         dialogo.get_by_text("Conferma", exact=True).click()
         self.page.get_by_text("Aggiungi Tesserato").first.wait_for(state="hidden")
 
-    def compila_lista(self, giocatori: list[Giocatore], lato: str,
-                      al_giocatore: Callable[[Esito], None] | None = None) -> Report:
-        report = Report()
+    def _assegnazioni(self, giocatori: list[Giocatore], lato: str) -> tuple[list[tuple[Giocatore, Callable[[], Riga]]], list[str]]:
+        """Abbina ogni giocatore alla sua riga del portale: i titolari alle righe dei titolari, le
+        riserve a quelle delle riserve, nell'ordine della lista. La riga si ritrova ogni volta che
+        serve, perché il portale potrebbe ricaricare la pagina."""
         titolari, riserve = self._righe(lato)
-        unica_sezione = not riserve and any(g.riserva for g in giocatori)
-        if unica_sezione:
-            # Sezione riserve non distinguibile: le righe proseguono dopo i titolari.
-            report.avvisi.append("Sezione riserve non individuata: riserve inserite dopo i titolari.")
-            da_inserire = [("titolari", giocatori, len(titolari))]
+        avvisi = []
+        if not riserve and any(g.riserva for g in giocatori):
+            avvisi.append("Sezione riserve non individuata: riserve inserite dopo i titolari.")
+            gruppi = [("titolari", giocatori, len(titolari))]
         else:
-            da_inserire = [
-                ("titolari", [g for g in giocatori if not g.riserva], len(titolari)),
-                ("riserve", [g for g in giocatori if g.riserva], len(riserve)),
-            ]
-
-        for sezione, elenco, n_righe in da_inserire:
+            gruppi = [("titolari", [g for g in giocatori if not g.riserva], len(titolari)),
+                      ("riserve", [g for g in giocatori if g.riserva], len(riserve))]
+        abbinati = []
+        for sezione, elenco, n_righe in gruppi:
             if len(elenco) > n_righe:
-                report.avvisi.append(f"{sezione}: {len(elenco)} giocatori ma solo {n_righe} righe.")
+                fuori = ", ".join(f"{g.cognome} {g.nome}" for g in elenco[n_righe:])
+                avvisi.append(f"{sezione}: {len(elenco)} giocatori ma solo {n_righe} righe; non inseriti: {fuori}.")
             for k, g in enumerate(elenco[:n_righe]):
-                # La riga si ritrova ogni volta: "Aggiungi persona" potrebbe ricaricare la pagina.
                 def riga(sezione=sezione, k=k) -> Riga:
                     t, r = self._righe(lato)
                     return (t if sezione == "titolari" else r)[k]
-                esito = self._compila_riga(g, riga, lato)
-                report.esiti.append(esito)
-                if al_giocatore:
-                    al_giocatore(esito)
+                abbinati.append((g, riga))
+        return abbinati, avvisi
+
+    def aggiungi_mancanti(self, giocatori: list[Giocatore], lato: str) -> set[int]:
+        """Fase 1: crea in archivio, con "Aggiungi persona", i giocatori che non sono nella tendina.
+        Si fa prima di scegliere i nominativi, così un'eventuale ricarica della pagina non cancella
+        scelte già fatte. Restituisce gli id dei giocatori aggiunti."""
+        titolari, riserve = self._righe(lato)
+        prima = (titolari or riserve or [None])[0]
+        if prima is None:
+            return set()
+        opzioni = self._opzioni(prima.giocatore)
+        aggiunti = set()
+        for g in giocatori:
+            if scegli_opzione(g, opzioni).stato != "nuovo":
+                continue
+            try:
+                self._aggiungi_persona(lato, g)
+                aggiunti.add(id(g))
+                t, r = self._righe(lato)
+                opzioni = self._opzioni((t or r)[0].giocatore)
+            except Exception:
+                pass  # se ne riparla in fase 2: il giocatore risulterà da verificare
+        return aggiunti
+
+    def compila_lista(self, giocatori: list[Giocatore], lato: str,
+                      al_giocatore: Callable[[Esito], None] | None = None,
+                      aggiunti: set[int] = frozenset()) -> Report:
+        """Fase 2: numero e nominativo di ogni giocatore nella sua riga."""
+        report = Report()
+        abbinati, report.avvisi = self._assegnazioni(giocatori, lato)
+        for g, riga in abbinati:
+            esito = self._compila_riga(g, riga, lato, aggiunto=id(g) in aggiunti)
+            report.esiti.append(esito)
+            if al_giocatore:
+                al_giocatore(esito)
         self.istantanea(f"compilata-{lato}")
         return report
 
-    def _compila_riga(self, g: Giocatore, riga, lato: str) -> Esito:
+    def verifica_e_ripara(self, giocatori: list[Giocatore], lato: str) -> int:
+        """Fase 3: rilegge ogni riga e rimette le scelte sparite (es. dopo una ricarica della pagina).
+        Restituisce quante righe sono state ripristinate."""
+        riparate = 0
+        abbinati, _ = self._assegnazioni(giocatori, lato)
+        for g, riga in abbinati:
+            try:
+                r = riga()
+                scelto = self.page.locator(r.giocatore).evaluate(
+                    "(s) => s.selectedIndex >= 0 ? s.options[s.selectedIndex].text : ''")
+                numero = self.page.locator(r.numero).evaluate(
+                    "(s) => s.selectedIndex >= 0 ? s.options[s.selectedIndex].text.trim() : ''")
+                giusto = scegli_opzione(g, [scelto]).stato == "trovato"
+                numero_giusto = g.numero is None or numero == str(g.numero)
+                if not (giusto and numero_giusto) and scegli_opzione(g, self._opzioni(r.giocatore)).stato == "trovato":
+                    if self._compila_riga(g, riga, lato).stato == "selezionato":
+                        riparate += 1
+            except Exception:
+                continue
+        return riparate
+
+    def _compila_riga(self, g: Giocatore, riga, lato: str, aggiunto: bool = False) -> Esito:
         try:
             r = riga()
             if g.numero is not None:
@@ -427,15 +478,17 @@ class Sinfonia:
             scelta = scegli_opzione(g, self._opzioni(r.giocatore))
             if scelta.stato == "da_verificare":
                 return Esito(g, "da_verificare", scelta.motivo)
-            stato = "selezionato"
             if scelta.stato == "nuovo":
+                # Non aggiunto in fase 1 (o aggiunta non riuscita): si riprova qui.
                 self._aggiungi_persona(lato, g)
+                aggiunto = True
                 r = riga()
+                if g.numero is not None:
+                    self.page.select_option(r.numero, label=str(g.numero))
                 scelta = scegli_opzione(g, self._opzioni(r.giocatore))
                 if scelta.stato != "trovato":
                     return Esito(g, "da_verificare", "aggiunto ma non trovato nella tendina")
-                stato = "aggiunto"
             self.page.select_option(r.giocatore, index=scelta.indice)
-            return Esito(g, stato)
+            return Esito(g, "aggiunto" if aggiunto else "selezionato")
         except Exception as e:  # una riga sbagliata non deve fermare le altre
             return Esito(g, "errore", str(e).splitlines()[0])

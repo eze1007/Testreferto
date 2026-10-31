@@ -134,6 +134,8 @@ function conferma() {{
   const v = (id) => document.getElementById(id).value;
   const testo = `${{v('c')}} ${{v('n')}} (${{v('d')}} - ID ${{nuovi++}})`;
   document.querySelectorAll('select.gioc.' + lato).forEach((s) => s.add(new Option(testo)));
+  // Come una ricarica della pagina: le scelte non ancora salvate si perdono.
+  document.querySelectorAll('select').forEach((s) => {{ s.selectedIndex = 0; }});
   ['c', 'n', 'd'].forEach((id) => document.getElementById(id).value = '');
   document.getElementById('dlg').style.display = 'none';
 }}

@@ -49,10 +49,21 @@ def compila(
             s4y.apri_gara(gara)
             avanzamento("Svolgimento e Sicurezza…")
             s4y.svolgimento_e_sicurezza()
+            # 1) prima tutti i giocatori nuovi in archivio, 2) poi le scelte, 3) infine il controllo:
+            # così una ricarica della pagina dopo "Aggiungi persona" non cancella scelte già fatte.
+            aggiunti = {}
+            for lato, distinta in squadre.items():
+                avanzamento(f"Giocatori nuovi in archivio, {NOMI_LATO[lato]}…")
+                aggiunti[lato] = s4y.aggiungi_mancanti(distinta.giocatori, lato)
             for lato, distinta in squadre.items():
                 avanzamento(f"Liste Gara, {NOMI_LATO[lato]}…")
                 risultato.report[lato] = s4y.compila_lista(
-                    distinta.giocatori, lato, al_giocatore=lambda e, lato=lato: al_giocatore(lato, e))
+                    distinta.giocatori, lato, al_giocatore=lambda e, lato=lato: al_giocatore(lato, e),
+                    aggiunti=aggiunti[lato])
+            avanzamento("Controllo finale delle Liste Gara…")
+            for lato, distinta in squadre.items():
+                if riparate := s4y.verifica_e_ripara(distinta.giocatori, lato):
+                    risultato.report[lato].avvisi.append(f"{riparate} righe ripristinate nel controllo finale.")
             avanzamento("Salvataggio (Salva Tutto)…")
             risultato.bottone_salvataggio = s4y.salva()
             avanzamento("Referto salvato.")

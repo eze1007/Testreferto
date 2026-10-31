@@ -73,6 +73,13 @@ def page():
         browser.close()
 
 
+def compila_tre_fasi(s4y, giocatori, lato):
+    aggiunti = s4y.aggiungi_mancanti(giocatori, lato)
+    report = s4y.compila_lista(giocatori, lato, aggiunti=aggiunti)
+    s4y.verifica_e_ripara(giocatori, lato)
+    return report
+
+
 def leggi_colonna(page, lato):
     """(numero, nominativo, documento) di ogni riga compilata della colonna."""
     return page.evaluate(
@@ -100,7 +107,7 @@ def test_percorso_completo(page):
         g(11, "BIANCHI", "LUCAS", "02/02/2001"),         # simile a BIANCHI LUCA: va creato
         g(14, "VERDI", "ANNA", "03/03/2003", riserva=True),
     ]
-    report = s4y.compila_lista(giocatori, "ospite")
+    report = compila_tre_fasi(s4y, giocatori, "ospite")
 
     assert [e.stato for e in report.esiti] == ["selezionato", "selezionato", "aggiunto", "aggiunto", "selezionato"]
     assert report.avvisi == []
@@ -133,7 +140,7 @@ def test_numeri_alti_tra_i_titolari(page):
     nomi = ["UNO", "DUE", "SEDICI", "QUATTRO", "CINQUE", "SEI", "SETTE", "OTTO", "NOVE", "DIECI", "TREDICI"]
     titolari = [g(n, "TITOLARE", nome, "01/01/2000") for n, nome in zip((1, 2, 16, 4, 5, 6, 7, 8, 9, 10, 13), nomi)]
     riserve = [g(3, "RISERVA", "TRE", "01/01/2000", riserva=True)]
-    report = s4y.compila_lista(titolari + riserve, "casa")
+    report = compila_tre_fasi(s4y, titolari + riserve, "casa")
     assert {e.stato for e in report.esiti} == {"aggiunto"}
     casa = leggi_colonna(page, "casa")
     assert [r[0] for r in casa[:11]] == ["1", "2", "16", "4", "5", "6", "7", "8", "9", "10", "13"]
@@ -204,3 +211,27 @@ def test_ricerca_gara_non_trovata_o_ambigua(page):
 def test_ricerca_qualsiasi_squadra(scritto, riga, atteso):
     from app.sinfonia import corrisponde, parole_gara
     assert corrisponde(parole_gara(scritto), riga) is atteso
+
+
+def test_entrambe_le_squadre_con_ricariche(page):
+    """Il caso del test reale: casa e ospite con giocatori nuovi. Ogni "Aggiungi persona" azzera le
+    scelte non salvate (come una ricarica): alla fine entrambe le colonne devono essere complete."""
+    s4y = Sinfonia(page)
+    s4y.login("arbitro123", "segreta")
+    s4y.apri_gara("tezze")
+    s4y.svolgimento_e_sicurezza()
+    casa = [g(n, "CASA", nome, "01/01/2012") for n, nome in [(1, "UNO"), (2, "DUE"), (3, "TRE")]] + \
+           [g(1, "ROSSI", "MARIO", "01/01/2000")]
+    ospite = [g(7, "OSPITE", "SETTE", "02/02/2012"), g(9, "VERDI", "ANNA", "03/03/2003"),
+              g(4, "OSPITE", "QUATTRO", "02/02/2012", riserva=True)]
+    casa[3].numero = 4
+    aggiunti = {"casa": s4y.aggiungi_mancanti(casa, "casa"), "ospite": s4y.aggiungi_mancanti(ospite, "ospite")}
+    s4y.compila_lista(casa, "casa", aggiunti=aggiunti["casa"])
+    s4y.compila_lista(ospite, "ospite", aggiunti=aggiunti["ospite"])
+    s4y.verifica_e_ripara(casa, "casa")
+    s4y.verifica_e_ripara(ospite, "ospite")
+    c, o = leggi_colonna(page, "casa"), leggi_colonna(page, "ospite")
+    assert [r[0] for r in c[:4]] == ["1", "2", "3", "4"]
+    assert [r[1].split(" (")[0] for r in c[:4]] == ["CASA UNO", "CASA DUE", "CASA TRE", "ROSSI MARIO"]
+    assert [r[1].split(" (")[0] for r in o[:2]] == ["OSPITE SETTE", "VERDI ANNA"]
+    assert o[11][:1] == ["4"] and o[11][1].startswith("OSPITE QUATTRO")
