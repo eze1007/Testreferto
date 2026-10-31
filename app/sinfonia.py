@@ -8,6 +8,9 @@ nome e data di nascita coincidono (non contano accenti, apostrofi, spazi e ordin
 prende il primo); altrimenti lo si crea
 con "Aggiungi persona". Documenti e capitano non vengono toccati. Alla fine si preme
 "Salva Tutto"; "Invia al G.S." non viene mai premuto.
+
+Sostituzioni (dal rapportino di fine gara): scheda "Sostituzioni" del referto, riaperto dopo il
+salvataggio delle Liste Gara, perché le tendine ESCE/ENTRA si basano sulle liste salvate.
 """
 
 import itertools
@@ -19,7 +22,8 @@ from pathlib import Path
 
 from playwright.sync_api import Locator, Page
 
-from .schema import Giocatore
+from .checks import completa, ordine_cronologico
+from .schema import Giocatore, Sostituzione
 
 URL = "https://servizi.aia-figc.it/sinfonia4you/"
 URL_REFERTI = URL + "area_utenti/area_tecnica/gestione_referti/default.asp"
@@ -64,6 +68,18 @@ class Esito:
     giocatore: Giocatore
     stato: str  # "selezionato", "aggiunto", "da_verificare", "errore"
     dettaglio: str = ""
+
+
+@dataclass
+class EsitoSostituzione:
+    sostituzione: Sostituzione
+    stato: str  # "inserita", "errore"
+    dettaglio: str = ""
+
+
+# Scheda Sostituzioni: righe della squadra e bottone "Aggiungi Sostituzione".
+TABELLA_SOSTITUZIONI = {"casa": "#riepilogo_sostituzioni_casa", "ospite": "#riepilogo_sostituzioni_fuori"}
+AGGIUNGI_SOSTITUZIONE = {"casa": "#btn_addsostituzione_casa", "ospite": "#btn_addsostituzione_fuori"}
 
 
 @dataclass
@@ -114,7 +130,17 @@ class Sinfonia:
         self._icone_viste: list[str] = []
         # Gli avvisi del portale (es. "giocatore già inserito") vengono annotati e chiusi.
         self.messaggi_portale: list[str] = []
-        page.on("dialog", lambda d: (self.messaggi_portale.append(d.message.strip()), d.dismiss()))
+        # Di norma le richieste di conferma si annullano; si accettano solo dove serve
+        # (es. "Aggiungi Sostituzione" oltre il massimo della categoria).
+        self.accetta_conferme = False
+        page.on("dialog", self._dialogo)
+
+    def _dialogo(self, d) -> None:
+        if d.type == "beforeunload":  # "lasciare la pagina?": si esce solo dopo aver salvato
+            d.accept()
+            return
+        self.messaggi_portale.append(d.message.strip())
+        d.accept() if self.accetta_conferme else d.dismiss()
 
     # --- utilità -------------------------------------------------------------------------
 
@@ -559,6 +585,86 @@ class Sinfonia:
             except Exception:
                 continue
         return riparate
+
+    # --- sostituzioni -------------------------------------------------------------------
+
+    def apri_scheda(self, ancora: str) -> None:
+        """Passa a una scheda del referto (es. "tabs-Sostituzioni") senza salvare nulla."""
+        self.page.locator(f"a[href='#{ancora}']").first.click()
+        self.page.locator(f"#{ancora}").wait_for(state="visible")
+        self.chiudi_finestre(300)
+
+    def _scegli_in_riga(self, riga: Locator, nome: str, valore: str | None = None,
+                        numero: int | None = None) -> None:
+        """Sceglie un'opzione della tendina `nome` della riga: per valore (tempo, minuto) o per
+        numero di maglia (esce, entra: l'attributo data-numero, anche per i rientri "* 6 - ...")."""
+        tendina = riga.locator(f"select[name={nome}]")
+        opzioni = tendina.evaluate(
+            "(s) => [...s.options].map((o) => [o.value, o.dataset.numero || '', o.text.trim()])")
+        if numero is not None:
+            valore = next((v for v, n, _ in opzioni if n == str(numero)), None)
+            if valore is None:
+                disponibili = ", ".join(n for v, n, _ in opzioni if n and n != "0") or "nessuno"
+                verbo = "uscire" if nome == "esce" else "entrare"
+                raise ValueError(f"il n. {numero} non può {verbo} in quel momento (possibili: {disponibili})")
+        elif valore not in [v for v, _, _ in opzioni]:
+            raise ValueError(f"{nome} {valore} non disponibile nel portale")
+        tendina.select_option(valore)
+        if tendina.input_value() != valore:
+            raise ValueError(f"il portale non ha accettato {nome} {numero if numero is not None else valore}")
+
+    def compila_sostituzioni(self, sostituzioni: list[Sostituzione], lato: str) -> list[EsitoSostituzione]:
+        """Scheda Sostituzioni di una squadra. Le tendine ESCE/ENTRA dipendono dalle Liste Gara
+        salvate e dalle sostituzioni delle righe precedenti, quindi le righe si compilano in ordine
+        di tempo. Le righe già compilate (es. da una prova precedente) prima si svuotano. Una
+        sostituzione che il portale non accetta resta fuori e viene segnalata."""
+        self.apri_scheda("tabs-Sostituzioni")
+        righe = self.page.locator(f"{TABELLA_SOSTITUZIONI[lato]} > tr")
+        righe.first.locator("select[name=esce]").wait_for()
+        for k in reversed(range(righe.count())):  # dall'ultima, così le tendine restano coerenti
+            for nome in ("entra", "esce"):
+                tendina = righe.nth(k).locator(f"select[name={nome}]")
+                if tendina.input_value() not in ("", "0"):
+                    tendina.select_option("0")
+
+        esiti: dict[int, EsitoSostituzione] = {}
+        k = 0
+        for i in ordine_cronologico(sostituzioni):
+            s = sostituzioni[i]
+            if not completa(s):
+                esiti[i] = EsitoSostituzione(s, "errore", "dati incompleti: non inserita")
+                continue
+            if k >= righe.count():
+                self.accetta_conferme = True  # "per questa categoria sono previste al massimo..."
+                try:
+                    self.page.locator(AGGIUNGI_SOSTITUZIONE[lato]).click()
+                    self.page.wait_for_function(
+                        "([sel, n]) => document.querySelectorAll(sel).length > n",
+                        arg=[f"{TABELLA_SOSTITUZIONI[lato]} > tr", k], timeout=5_000)
+                except Exception:
+                    esiti[i] = EsitoSostituzione(s, "errore", "impossibile aggiungere una riga nel portale")
+                    continue
+                finally:
+                    self.accetta_conferme = False
+            riga = righe.nth(k)
+            prima = {n: riga.locator(f"select[name={n}]").input_value() for n in ("tempo", "minuto")}
+            try:
+                self._scegli_in_riga(riga, "tempo", valore=str(s.tempo))
+                self._scegli_in_riga(riga, "minuto", valore=str(s.minuto))
+                self._scegli_in_riga(riga, "esce", numero=s.esce)
+                self._scegli_in_riga(riga, "entra", numero=s.entra)
+                esiti[i] = EsitoSostituzione(s, "inserita")
+                k += 1
+            except Exception as e:
+                # La riga torna com'era, libera per la sostituzione successiva.
+                for nome, valore in (("entra", "0"), ("esce", "0"), *prima.items()):
+                    try:
+                        riga.locator(f"select[name={nome}]").select_option(valore)
+                    except Exception:
+                        pass
+                esiti[i] = EsitoSostituzione(s, "errore", str(e).splitlines()[0])
+        self.istantanea(f"sostituzioni-{lato}")
+        return [esiti[i] for i in range(len(sostituzioni))]
 
     def _compila_riga(self, g: Giocatore, riga, lato: str, aggiunto: bool = False) -> Esito:
         try:

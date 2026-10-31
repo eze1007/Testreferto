@@ -7,8 +7,8 @@ from pathlib import Path
 
 from playwright.sync_api import Page, sync_playwright
 
-from .schema import Distinta
-from .sinfonia import Esito, Report, Sinfonia
+from .schema import Distinta, Sostituzione
+from .sinfonia import Esito, EsitoSostituzione, Report, Sinfonia
 
 NOMI_LATO = {"casa": "squadra di casa", "ospite": "squadra ospite"}
 
@@ -16,6 +16,7 @@ NOMI_LATO = {"casa": "squadra di casa", "ospite": "squadra ospite"}
 @dataclass
 class Risultato:
     report: dict[str, Report] = field(default_factory=dict)
+    sostituzioni: dict[str, list[EsitoSostituzione]] = field(default_factory=dict)
     bottone_salvataggio: str | None = None
     screenshot: bytes | None = None  # pagina finale, oppure il punto in cui si è fermato
     errore: str | None = None
@@ -33,8 +34,11 @@ def compila(
     al_giocatore: Callable[[str, Esito], None] = lambda lato, esito: None,
     prepara_pagina: Callable[[Page], None] | None = None,
     alla_fine: Callable[[Page], None] | None = None,
+    sostituzioni: dict[str, list[Sostituzione]] | None = None,
+    alla_sostituzione: Callable[[str, EsitoSostituzione], None] = lambda lato, esito: None,
 ) -> Risultato:
-    """Login, apertura gara, Svolgimento e Sicurezza, Liste Gara delle squadre, Salva Tutto."""
+    """Login, apertura gara, Svolgimento e Sicurezza, Liste Gara delle squadre, Salva Tutto.
+    Con le sostituzioni del rapportino: riapre il referto, scheda Sostituzioni, Salva Tutto."""
     risultato = Risultato()
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless, executable_path=os.environ.get("CHROMIUM_PATH"))
@@ -74,6 +78,19 @@ def compila(
             avanzamento("Salvataggio (Salva Tutto)…")
             risultato.bottone_salvataggio = s4y.salva()
             avanzamento("Referto salvato.")
+            da_inserire = {lato: elenco for lato, elenco in (sostituzioni or {}).items() if elenco}
+            if da_inserire:
+                # Le tendine delle sostituzioni si basano sulle Liste Gara salvate: si riapre il referto.
+                avanzamento("Riapertura del referto per le Sostituzioni…")
+                s4y.apri_gara(gara)
+                for lato, elenco in da_inserire.items():
+                    avanzamento(f"Sostituzioni, {NOMI_LATO[lato]}…")
+                    risultato.sostituzioni[lato] = esiti = s4y.compila_sostituzioni(elenco, lato)
+                    for e in esiti:
+                        alla_sostituzione(lato, e)
+                avanzamento("Salvataggio delle Sostituzioni (Salva Tutto)…")
+                risultato.bottone_salvataggio = s4y.salva()
+                avanzamento("Sostituzioni salvate.")
         except Exception as e:
             risultato.errore = str(e).splitlines()[0] if str(e) else type(e).__name__
             s4y.istantanea("errore")

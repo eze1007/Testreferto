@@ -85,6 +85,28 @@
   @media (prefers-color-scheme: dark) { .ok { background:#14361f; color:#86efac; } }
   .screenshot img { width:100%; border:1px solid var(--line); border-radius:8px; }
 
+  /* Rapportino di fine gara e sostituzioni */
+  .card.rapportino { margin-top:16px; border-top:4px solid var(--muted); }
+  .card.rapportino .drop { min-height:120px; }
+  .facoltativo { font-weight:400; font-size:13px; color:var(--muted); }
+  .sost h3 { margin:0 0 8px; font-size:15px; display:flex; align-items:center; gap:8px; }
+  .sost h3::before { content:""; width:10px; height:10px; border-radius:50%; background:var(--colore); }
+  .sost table td { vertical-align:top; }
+  .sost td.t { width:4.6em; } .sost td.m { width:3.6em; } .sost td.x { width:2em; text-align:center; }
+  .sost td select, .sost td input[type=text] { width:100%; font:inherit; font-size:14px; padding:5px 4px;
+      border:1px solid var(--line); border-radius:4px; background:var(--card); color:inherit; }
+  .sost td.m input, .sost td.p input { text-align:center; }
+  .sost td.p input { width:3.4em; }
+  .sost .chi { display:block; font-size:11px; color:var(--muted); line-height:1.2; margin-top:2px; overflow-wrap:anywhere; }
+  .sost tr.anomalia td { background:var(--warn-bg); }
+  .sost .togli { background:none; border:0; color:var(--muted); cursor:pointer; font-size:18px; line-height:1; padding:4px; }
+  .sost .aggiungi { margin-top:8px; background:none; border:0; color:var(--accent); cursor:pointer; font:inherit; font-size:14px; padding:4px 0; }
+  .sost .nessuna { color:var(--muted); font-size:14px; padding:6px 0; }
+  .sost-ok { color:var(--muted); font-size:13px; margin-bottom:8px; }
+  .esito.inserita { background:#dcfce7; color:#14532d; }
+  @media (prefers-color-scheme: dark) { .esito.inserita { background:#14361f; color:#86efac; } }
+  .esiti h3 { font-size:14px; margin:14px 0 4px; color:var(--muted); }
+
   /* Telefono: il nome va sotto il cognome, così entrambi hanno tutta la larghezza */
   @media (max-width: 760px) {
     .card { padding:12px; }
@@ -102,6 +124,11 @@
     tr.g td:nth-child(3) { grid-area:m; } tr.g td:nth-child(4) { grid-area:d; } tr.g td:nth-child(5) { grid-area:r; }
     tr.g td:nth-child(3) input { font-size:13px; color:var(--muted); }
     tr.sezione { display:block; } tr.sezione td { display:block; }
+    /* La tabella delle sostituzioni resta una tabella normale anche sul telefono */
+    .sost table { display:table; } .sost thead { display:table-header-group; }
+    .sost tbody { display:table-row-group; } .sost thead tr { display:table-row; }
+    .sost thead th:nth-child(n) { display:table-cell; font-size:12px; }
+    .sost thead th:nth-child(n)::after { content:none; }
   }
 </style>
 </head>
@@ -131,6 +158,15 @@
         <button class="rimuovi" hidden>Rimuovi</button>
       </div>
     </div>
+    <div class="card rapportino" data-lato="rapportino">
+      <h2>Rapportino di fine gara <span class="facoltativo">(facoltativo: per ora si leggono le sostituzioni)</span></h2>
+      <div class="drop">
+        <input type="file" accept="image/*,application/pdf">
+        <div class="vuoto-drop"><div class="icona">📝</div><div>Tocca per scattare o scegliere<br>la foto del rapportino</div></div>
+        <div class="anteprima" hidden></div>
+      </div>
+      <button class="rimuovi" hidden>Rimuovi</button>
+    </div>
     <div class="azioni"><button class="primario" id="prosegui" disabled>Prosegui</button></div>
     <div class="stato" id="stato-caricamento"></div>
   </section>
@@ -141,12 +177,21 @@
       <div class="card casa"><h2 id="titolo-casa">Squadra di casa</h2><div id="tabella-casa"></div></div>
       <div class="card ospite"><h2 id="titolo-ospite">Squadra ospite</h2><div id="tabella-ospite"></div></div>
     </div>
+    <div class="card" id="box-sostituzioni" style="margin-top:16px" hidden>
+      <h2>Sostituzioni (rapportino di fine gara)</h2>
+      <div id="errore-rapportino"></div>
+      <div class="griglia">
+        <div class="sost casa" id="sost-casa"></div>
+        <div class="sost ospite" id="sost-ospite"></div>
+      </div>
+    </div>
     <div class="card compila">
       <label>Gara da refertare
         <input type="text" id="gara" placeholder="es. Tezze, oppure Tezze vs Brendola" autocomplete="off">
       </label>
       <button class="primario" id="avvia">Compila Sinfonia4You</button>
       <p class="nota">Compila Svolgimento, Sicurezza e Liste Gara delle due squadre e preme «Salva Tutto».
+        Se hai caricato il rapportino, poi riapre il referto, compila le Sostituzioni e salva di nuovo.
         «Invia al G.S.» non viene mai premuto.</p>
     </div>
     <div class="azioni">
@@ -170,8 +215,10 @@
 </main>
 <script>
 const LATI = ["casa", "ospite"];
-const file = { casa: null, ospite: null };
-const dati = { casa: null, ospite: null };
+const file = { casa: null, ospite: null, rapportino: null };
+const dati = { casa: null, ospite: null, rapportino: null };
+// Sostituzioni lette dal rapportino (correggibili): {casa: [{tempo, minuto, esce, entra, dubbi}], ospite: [...]}
+let sost = null;
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
@@ -204,7 +251,7 @@ function imposta(lato, f) {
 async function leggi(lato) {
   const fd = new FormData();
   fd.append("file", file[lato]);
-  const r = await fetch("/api/estrai", { method: "POST", body: fd });
+  const r = await fetch(lato === "rapportino" ? "/api/rapportino" : "/api/estrai", { method: "POST", body: fd });
   const body = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(body.detail || r.statusText);
   return body;
@@ -213,15 +260,21 @@ async function leggi(lato) {
 $("#prosegui").addEventListener("click", async () => {
   const bottone = $("#prosegui"), stato = $("#stato-caricamento");
   bottone.disabled = true;
-  stato.textContent = "Lettura delle distinte in corso, può richiedere fino a un minuto…";
-  // Le due distinte si leggono in parallelo; quelle già lette non si rileggono.
-  const risultati = await Promise.allSettled(LATI.map((l) => dati[l] ? dati[l] : leggi(l)));
-  LATI.forEach((l, i) => {
+  stato.textContent = "Lettura in corso, può richiedere fino a un minuto…";
+  // Distinte e rapportino si leggono in parallelo; quelli già letti non si rileggono.
+  const daLeggere = file.rapportino ? [...LATI, "rapportino"] : LATI;
+  const rapportinoNuovo = file.rapportino && !dati.rapportino;
+  const risultati = await Promise.allSettled(daLeggere.map((l) => dati[l] ? dati[l] : leggi(l)));
+  daLeggere.forEach((l, i) => {
     dati[l] = risultati[i].status === "fulfilled" ? risultati[i].value : { errore: risultati[i].reason.message };
   });
   bottone.disabled = false;
   stato.textContent = "";
   LATI.forEach(mostraTabella);
+  if (!file.rapportino) sost = null;
+  else if (rapportinoNuovo || !sost) sost = dati.rapportino.rapportino
+    ? { casa: dati.rapportino.rapportino.casa, ospite: dati.rapportino.rapportino.ospite } : null;
+  mostraSostituzioni();
   $("#caricamento").hidden = true;
   $("#revisione").hidden = false;
   scrollTo(0, 0);
@@ -259,11 +312,108 @@ function mostraTabella(lato) {
     </tbody></table>`;
   box.onchange = (e) => {
     const el = e.target, g = giocatori[el.dataset.i], k = el.dataset.k;
-    if (k === "riserva") { g.riserva = el.checked; mostraTabella(lato); return; }
+    if (k === "riserva") { g.riserva = el.checked; mostraTabella(lato); controllaSostituzioni(); return; }
     if (k === "numero") g.numero = el.value.trim() === "" ? null : Number(el.value);
     else g[k] = el.value.trim().toUpperCase() || null;
     if (k === "cognome" || k === "nome") g.testo_originale = `${g.cognome ?? ""} ${g.nome ?? ""}`.trim();
+    controllaSostituzioni();  // titolari, riserve e numeri cambiano i controlli
   };
+}
+
+// --- Sostituzioni del rapportino ---------------------------------------------------------
+
+const intero = (v) => { const t = String(v ?? "").trim(); return /^\d+$/.test(t) ? Number(t) : null; };
+
+function nomeGiocatore(lato, numero) {
+  const g = numero == null || !dati[lato] ? null : dati[lato].distinta.giocatori.find((x) => x.numero === numero);
+  return g ? `${g.cognome} ${g.nome}`.trim() : "";
+}
+
+function mostraSostituzioni() {
+  const box = $("#box-sostituzioni");
+  box.hidden = !file.rapportino;
+  $("#errore-rapportino").innerHTML = dati.rapportino && dati.rapportino.errore
+    ? `<div class="errore">Lettura del rapportino non riuscita: ${esc(dati.rapportino.errore)}<br>
+       Torna indietro e riprova, oppure scrivi qui sotto le sostituzioni.</div>` : "";
+  if (!file.rapportino) return;
+  if (!sost) sost = { casa: [], ospite: [] };
+  for (const l of LATI) tabellaSostituzioni(l);
+  controllaSostituzioni();
+}
+
+function tabellaSostituzioni(lato) {
+  const box = $(`#sost-${lato}`), elenco = sost[lato];
+  const opz = (v) => ["", 1, 2].map((t) => `<option value="${t}"${t === v ? " selected" : ""}>${t ? t + "° t." : ""}</option>`).join("");
+  const riga = (s, i) => `<tr data-i="${i}">
+      <td class="t"><select data-k="tempo">${opz(s.tempo)}</select></td>
+      <td class="m"><input type="text" inputmode="numeric" data-k="minuto" value="${esc(s.minuto)}"></td>
+      <td class="p"><input type="text" inputmode="numeric" data-k="esce" value="${esc(s.esce)}"><span class="chi" data-chi="esce"></span></td>
+      <td class="p"><input type="text" inputmode="numeric" data-k="entra" value="${esc(s.entra)}"><span class="chi" data-chi="entra"></span></td>
+      <td class="x"><button class="togli" title="Togli questa sostituzione" aria-label="Togli">×</button></td></tr>`;
+  box.innerHTML = `<h3>Squadra ${lato === "casa" ? "di casa" : "ospite"}</h3><div class="avvisi-sost"></div>
+    ${elenco.length ? `<table><thead><tr><th>Tempo</th><th>Min.</th><th>Esce</th><th>Entra</th><th></th></tr></thead>
+      <tbody>${elenco.map(riga).join("")}</tbody></table>` : `<div class="nessuna">Nessuna sostituzione.</div>`}
+    <button class="aggiungi">+ Aggiungi sostituzione</button>`;
+  box.onchange = (e) => {
+    const el = e.target, tr = el.closest("tr[data-i]");
+    if (!tr) return;
+    const s = elenco[Number(tr.dataset.i)];
+    s[el.dataset.k] = intero(el.value);
+    s.dubbi = [];  // corretta a mano: i dubbi della lettura non valgono più
+    mostraNomi(lato);
+    controllaSostituzioni();
+  };
+  box.onclick = (e) => {
+    if (e.target.closest(".togli")) {
+      elenco.splice(Number(e.target.closest("tr").dataset.i), 1);
+    } else if (e.target.closest(".aggiungi")) {
+      const ultima = elenco[elenco.length - 1];
+      elenco.push({ tempo: ultima ? ultima.tempo : null, minuto: null, esce: null, entra: null, dubbi: [] });
+    } else return;
+    tabellaSostituzioni(lato);
+    controllaSostituzioni();
+  };
+  mostraNomi(lato);
+}
+
+let avvisiSost = { casa: [], ospite: [] }, timerControllo = null, giroControllo = 0;
+
+function controllaSostituzioni() {
+  if (!sost) return;
+  clearTimeout(timerControllo);
+  timerControllo = setTimeout(async () => {
+    const giro = ++giroControllo, corpo = {};
+    for (const l of LATI) corpo[l] = { sostituzioni: sost[l], distinta: dati[l] ? dati[l].distinta : null };
+    try {
+      const r = await fetch("/api/controlla-sostituzioni", { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify(corpo) });
+      if (!r.ok || giro !== giroControllo) return;  // una risposta vecchia non sovrascrive quella nuova
+      avvisiSost = await r.json();
+      for (const l of LATI) mostraAvvisiSostituzioni(l);
+    } catch (e) { /* controllo non disponibile: si riprova alla prossima modifica */ }
+  }, 200);
+}
+
+function mostraNomi(lato) {
+  for (const tr of $(`#sost-${lato}`).querySelectorAll("tr[data-i]")) {
+    const s = sost[lato][Number(tr.dataset.i)];
+    for (const k of ["esce", "entra"]) tr.querySelector(`[data-chi=${k}]`).textContent = nomeGiocatore(lato, s[k]);
+  }
+}
+
+function mostraAvvisiSostituzioni(lato) {
+  const box = $(`#sost-${lato}`), avvisi = avvisiSost[lato] || [];
+  mostraNomi(lato);
+  for (const tr of box.querySelectorAll("tr[data-i]")) {
+    tr.classList.toggle("anomalia", avvisi.some((a) => a.riga === Number(tr.dataset.i)));
+  }
+  $(".avvisi-sost", box).innerHTML = avvisi.length
+    ? `<div class="avvisi"><strong>Da controllare</strong><ul>${avvisi.map((a) => `<li>${esc(a.testo)}</li>`).join("")}</ul></div>`
+    : (sost[lato].length ? `<div class="sost-ok">Nessuna anomalia.</div>` : "");
+}
+
+function anomalieSostituzioni() {
+  return sost ? LATI.reduce((n, l) => n + (avvisiSost[l] || []).length, 0) : 0;
 }
 
 $("#indietro").addEventListener("click", () => {
@@ -287,7 +437,8 @@ $("#scarica").addEventListener("click", () => {
 });
 // --- Schermata 3 -------------------------------------------------------------------------
 
-const ETICHETTE = { selezionato: "Selezionato", aggiunto: "Nuovo", da_verificare: "Da verificare", errore: "Errore" };
+const ETICHETTE = { selezionato: "Selezionato", aggiunto: "Nuovo", da_verificare: "Da verificare", errore: "Errore",
+                    inserita: "Inserita" };
 
 $("#avvia").addEventListener("click", async () => {
   const gara = $("#gara").value.trim(), squadre = squadreLette();
@@ -302,11 +453,16 @@ $("#avvia").addEventListener("click", async () => {
     }
   }
   const mancanti = LATI.filter((l) => !squadre[l]);
-  const avviso = mancanti.length ? `\nAttenzione: manca la squadra ${mancanti[0] === "casa" ? "di casa" : "ospite"}.` : "";
+  let avviso = mancanti.length ? `\nAttenzione: manca la squadra ${mancanti[0] === "casa" ? "di casa" : "ospite"}.` : "";
+  const anomalie = anomalieSostituzioni();
+  if (sost) avviso += `\nPoi verranno inserite le sostituzioni (casa ${sost.casa.length}, ospite ${sost.ospite.length})` +
+                      (anomalie ? `: ATTENZIONE, ${anomalie} da controllare.` : ".");
   if (!confirm(`Compilare Sinfonia4You per la gara «${gara}» e premere «Salva Tutto»?${avviso}`)) return;
 
+  const richiesta = { gara, ...squadre };
+  if (sost) richiesta.sostituzioni = { casa: sost.casa, ospite: sost.ospite };
   const r = await fetch("/api/compila", { method: "POST", headers: { "Content-Type": "application/json" },
-                                          body: JSON.stringify({ gara, ...squadre }) });
+                                          body: JSON.stringify(richiesta) });
   const body = await r.json().catch(() => ({}));
   if (!r.ok) { alert("Impossibile avviare: " + (body.detail || r.statusText)); return; }
 
@@ -332,12 +488,14 @@ async function segui(id) {
   }
   $("#passi").innerHTML = s.messaggi.map((m) => `<li>${esc(m)}</li>`).join("");
   if (s.stato === "in_corso") $("#passi").lastElementChild?.classList.add("attivo");
-  for (const l of LATI) mostraEsiti(l, s.esiti[l], (s.avvisi || {})[l] || []);
+  for (const l of LATI) mostraEsiti(l, s.esiti[l], (s.avvisi || {})[l] || [], (s.sostituzioni || {})[l] || []);
   if (s.stato === "in_corso") { setTimeout(() => segui(id), 1000); return; }
 
   const problemi = LATI.flatMap((l) => s.esiti[l]).filter((e) => e.stato === "da_verificare" || e.stato === "errore").length;
+  const sostNo = LATI.flatMap((l) => (s.sostituzioni || {})[l] || []).filter((e) => e.stato === "errore").length;
   $("#esito-finale").innerHTML = s.stato === "completato"
-    ? `<div class="ok">Referto salvato con «${esc(s.bottone)}».${problemi ? ` ${problemi} giocatori da sistemare a mano.` : ""}</div>`
+    ? `<div class="ok">Referto salvato con «${esc(s.bottone)}».${problemi ? ` ${problemi} giocatori da sistemare a mano.` : ""}` +
+      `${sostNo ? ` ${sostNo} sostituzioni non inserite: sistemale a mano.` : ""}</div>`
     : `<div class="errore">Compilazione interrotta: ${esc(s.errore)}<br>Controlla lo screenshot qui sotto.</div>`;
   if (s.screenshot) {
     $("#screenshot").src = `/api/compila/${id}/screenshot?t=${Date.now()}`;
@@ -346,7 +504,7 @@ async function segui(id) {
   $("#torna").disabled = false;
 }
 
-function mostraEsiti(lato, esiti, avvisi) {
+function mostraEsiti(lato, esiti, avvisi, sostituzioni = []) {
   const box = $(`#esiti-${lato}`);
   if (!dati[lato]) { box.innerHTML = `<div class="vuoto">Squadra non inviata.</div>`; return; }
   if (!esiti.length && !avvisi.length) { box.innerHTML = `<div class="vuoto">In attesa…</div>`; return; }
@@ -354,7 +512,11 @@ function mostraEsiti(lato, esiti, avvisi) {
     + `<table>${esiti.map((e) => `<tr>
         <td style="width:2.5em;text-align:center">${esc(e.numero)}</td>
         <td>${esc(e.cognome)} ${esc(e.nome)}${e.dettaglio ? `<div class="dettaglio">${esc(e.dettaglio)}</div>` : ""}</td>
-        <td style="text-align:right"><span class="esito ${e.stato}">${ETICHETTE[e.stato]}</span></td></tr>`).join("")}</table>`;
+        <td style="text-align:right"><span class="esito ${e.stato}">${ETICHETTE[e.stato]}</span></td></tr>`).join("")}</table>`
+    + (sostituzioni.length ? `<h3>Sostituzioni</h3><table class="esiti-sost">${sostituzioni.map((e) => `<tr>
+        <td>${esc(e.minuto ?? "?")}' ${esc(e.tempo ?? "?")}° t. · esce ${esc(e.esce ?? "?")} · entra ${esc(e.entra ?? "?")}
+          ${e.dettaglio ? `<div class="dettaglio">${esc(e.dettaglio)}</div>` : ""}</td>
+        <td style="text-align:right"><span class="esito ${e.stato}">${ETICHETTE[e.stato]}</span></td></tr>`).join("")}</table>` : "");
 }
 
 $("#torna").addEventListener("click", () => {

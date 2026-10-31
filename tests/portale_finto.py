@@ -36,8 +36,79 @@ def _barra(successivo: str) -> str:
 
 def _schede(attiva: str) -> str:
     nomi = ["Svolgimento", "Sicurezza", "Liste Gara", "Durata", "Reti", "Disciplina", "Sostituzioni", "Note"]
+    # Come nel portale: ogni scheda è un link "#tabs-..."; qui funziona solo quella delle Sostituzioni.
     return '<div class="tabs">' + "".join(
-        f'<a class="{"on" if n == attiva else ""}">{n}</a>' for n in nomi) + "</div>"
+        f'<a href="#tabs-{n.replace(" ", "")}" class="{"on" if n == attiva else ""}" '
+        f'onclick="return mostraScheda(this)">{n}</a>' for n in nomi) + "</div>"
+
+
+# Scheda Sostituzioni: le tendine ESCE/ENTRA dipendono dalle Liste Gara salvate (qui fisse) e dalle
+# righe precedenti, come nel portale. Chi è uscito può rientrare: compare in ENTRA come "* 6 - ...".
+TITOLARI_SOST = {"casa": list(range(1, 12)), "ospite": [1, 2, 3, 4, 5, 6, 7, 8, 9, 13, 14]}
+RISERVE_SOST = {"casa": list(range(12, 19)), "ospite": [15, 16, 17, 18, 10, 11]}
+
+
+def _tabella_sostituzioni(lato: str, corpo: str) -> str:
+    riga = """<tr><td><button class="delsostituzione">x</button></td>
+      <td>TEMPO <select name="tempo"><option value="0"></option><option value="1">1 Tempo</option>
+        <option value="2">2 Tempo</option></select></td>
+      <td>MINUTO <select name="minuto"><option value="0"></option>""" + "".join(
+        f'<option value="{m}">{m} min.</option>' for m in range(1, 36)) + """</select></td>
+      <td>ESCE <select name="esce"></select></td><td>ENTRA <select name="entra"></select></td></tr>"""
+    return f"""<table><tbody id="riepilogo_sostituzioni_{corpo}">{riga * 7}</tbody>
+      <tfoot><tr><td><button id="btn_addsostituzione_{corpo}">Aggiungi Sostituzione</button></td></tr></tfoot></table>
+      <template id="riga_{corpo}">{riga}</template>"""
+
+
+SOSTITUZIONI = f"""<div id="tabs-Sostituzioni" style="display:none" class="box">
+<h2>CALCIO TEZZE</h2>{_tabella_sostituzioni('casa', 'casa')}
+<h2>BRENDOLA</h2>{_tabella_sostituzioni('ospite', 'fuori')}</div>
+<script>
+const TITOLARI = {TITOLARI_SOST}, RISERVE = {RISERVE_SOST}, CORPO = {{casa: 'casa', ospite: 'fuori'}};
+function mostraScheda(a) {{
+  const scheda = document.getElementById(a.getAttribute('href').slice(1));
+  if (scheda) scheda.style.display = 'block';
+  return false;
+}}
+const opzione = (lato, n, rientro) => `<option value="${{lato === 'casa' ? 1000 + n : 2000 + n}}" data-numero="${{n}}">` +
+  `${{rientro ? '* ' : ''}}${{n}} - GIOCATORE ${{n}}</option>`;
+function aggiorna(lato) {{
+  let campo = [...TITOLARI[lato]], panchina = [...RISERVE[lato]], usciti = [];
+  for (const tr of document.querySelectorAll(`#riepilogo_sostituzioni_${{CORPO[lato]}} > tr`)) {{
+    const esce = tr.querySelector('[name=esce]'), entra = tr.querySelector('[name=entra]');
+    const prima = [esce.value, entra.value];
+    esce.innerHTML = '<option value="0"></option>' + campo.map((n) => opzione(lato, n)).join('');
+    entra.innerHTML = '<option value="0"></option>' + panchina.map((n) => opzione(lato, n)).join('')
+                      + usciti.map((n) => opzione(lato, n, true)).join('');
+    esce.value = [...esce.options].some((o) => o.value === prima[0]) ? prima[0] : '0';
+    entra.value = [...entra.options].some((o) => o.value === prima[1]) ? prima[1] : '0';
+    const e = Number(esce.selectedOptions[0].dataset.numero || 0), n = Number(entra.selectedOptions[0].dataset.numero || 0);
+    tr.firstElementChild.style.borderLeft = e && n ? '3px solid rgb(0, 255, 0)' : '3px solid rgb(255, 0, 0)';
+    if (e && n) {{
+      campo = campo.filter((x) => x !== e).concat([n]);
+      panchina = panchina.filter((x) => x !== n);
+      usciti = usciti.filter((x) => x !== n).concat([e]);
+    }}
+  }}
+}}
+for (const lato of ['casa', 'ospite']) {{
+  const corpo = document.getElementById('riepilogo_sostituzioni_' + CORPO[lato]);
+  corpo.addEventListener('change', () => aggiorna(lato));
+  document.getElementById('btn_addsostituzione_' + CORPO[lato]).addEventListener('click', () => {{
+    if (corpo.children.length >= 7 && !confirm('ATTENZIONE! per questa categoria sono previste: 7 Sostituzioni al massimo.')) return;
+    corpo.append(document.getElementById('riga_' + CORPO[lato]).content.cloneNode(true));
+    aggiorna(lato);
+  }});
+  aggiorna(lato);
+}}
+// Una sostituzione rimasta da una prova precedente, da togliere.
+(() => {{
+  const tr = document.querySelector('#riepilogo_sostituzioni_casa > tr');
+  tr.querySelector('[name=tempo]').value = '1'; tr.querySelector('[name=minuto]').value = '3';
+  tr.querySelector('[name=esce]').value = '1002'; aggiorna('casa');
+  tr.querySelector('[name=entra]').value = '1012'; aggiorna('casa');
+}})();
+</script>"""
 
 
 _SVUOTA = ("onfocus=\"if(this.value==this.defaultValue){this.value='';}\" "
@@ -80,6 +151,8 @@ GARE = f"""<div class="box"><div class="titolo">Gestione Referti</div>
 
 SVOLGIMENTO = f"""{_schede('Svolgimento')}<div class="box"><div class="titolo">Svolgimento della Gara</div>
 {_scegli('Disputata Regolarmente')}{_scegli('Disputata Con Sospensioni')}{_scegli('Sospesa')}</div>
+{SOSTITUZIONI}
+<script>let salvato = false, salvatoScheda = false, inviato = false;</script>
 {_barra('sicurezza.asp')}"""
 
 SICUREZZA = f"""{_schede('Sicurezza')}<div class="box"><div class="titolo">Misure d'Ordine</div>

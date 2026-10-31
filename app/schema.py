@@ -24,3 +24,19 @@ class Giocatore(BaseModel):
 class Distinta(BaseModel):
     giocatori: list[Giocatore]
     note_generali: list[str] = Field(description="Problemi generali: foto sfocata, parti tagliate, ecc.")
+
+
+# --- Rapportino di fine gara ------------------------------------------------------------------
+
+class Sostituzione(BaseModel):
+    tempo: Optional[int] = Field(description="Tempo di gioco (1 o 2), scritto dopo 'del'; null se illeggibile")
+    minuto: Optional[int] = Field(description="Minuto scritto dopo 'Al'; null se illeggibile")
+    esce: Optional[int] = Field(description="Numero di maglia scritto dopo 'esce il n.'; null se illeggibile")
+    entra: Optional[int] = Field(description="Numero di maglia scritto dopo 'entra il n.'; null se illeggibile")
+    dubbi: list[str] = Field(default_factory=list, description="Cifre lette con incertezza; lista vuota se tutto chiaro")
+
+
+class Rapportino(BaseModel):
+    casa: list[Sostituzione] = Field(description="Sostituzioni della società ospitante (colonna di sinistra), nell'ordine delle righe")
+    ospite: list[Sostituzione] = Field(description="Sostituzioni della società ospitata (colonna di destra), nell'ordine delle righe")
+    note_generali: list[str] = Field(default_factory=list, description="Problemi di leggibilità della foto")

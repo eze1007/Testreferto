@@ -308,3 +308,58 @@ def test_scambio_titolari_riserve_su_referto_gia_salvato(page):
     stati = {e.giocatore.cognome: e.stato for e in report.esiti}
     assert stati["DIECI"] == stati["TREDICI"] == "selezionato"         # nessun doppione in archivio
     assert not any(o.startswith("DIECI ANTONIO (10/10/2012 - ID 9") for o in s4y._opzioni("select.gioc.ospite >> nth=0"))
+
+
+# --- sostituzioni ------------------------------------------------------------------------------
+
+def sost(tempo, minuto, esce, entra):
+    from app.schema import Sostituzione
+    return Sostituzione(tempo=tempo, minuto=minuto, esce=esce, entra=entra)
+
+
+def leggi_sostituzioni(page, corpo):
+    """[tempo, minuto, numero che esce, numero che entra] delle righe compilate."""
+    return page.evaluate(
+        """(corpo) => [...document.querySelectorAll(`#riepilogo_sostituzioni_${corpo} > tr`)].map((tr) => {
+             const v = (n) => tr.querySelector(`[name=${n}]`);
+             const num = (n) => v(n).selectedOptions[0]?.dataset.numero || '';
+             return [v('tempo').value, v('minuto').value, num('esce'), num('entra')];
+           }).filter((r) => r[2] || r[3])""", corpo)
+
+
+def test_sostituzioni_in_ordine_con_rientro_ed_errori(page):
+    s4y = Sinfonia(page)
+    s4y.login("arbitro123", "segreta")
+    s4y.apri_gara("tezze brendola")
+    elenco = [
+        sost(2, 25, 7, 18),
+        sost(1, 25, 6, 17),      # prima in ordine di tempo
+        sost(2, 30, 17, 6),      # rientro del 6 ("* 6 - ..." nella tendina ENTRA)
+        sost(2, 5, 99, 12),      # il 99 non c'è: non inserita
+        sost(None, 10, 3, 13),   # incompleta: non inserita
+    ]
+    esiti = s4y.compila_sostituzioni(elenco, "casa")
+    assert [e.stato for e in esiti] == ["inserita", "inserita", "inserita", "errore", "errore"]
+    assert "il n. 99 non può uscire" in esiti[3].dettaglio and "1, 2, 3" in esiti[3].dettaglio
+    assert esiti[4].dettaglio == "dati incompleti: non inserita"
+    # La riga rimasta da una prova precedente (esce 2, entra 12) è stata tolta.
+    assert leggi_sostituzioni(page, "casa") == [["1", "25", "6", "17"], ["2", "25", "7", "18"], ["2", "30", "17", "6"]]
+    assert leggi_sostituzioni(page, "fuori") == []  # ospite intatta
+    # Le righe libere (anche quella usata dal tentativo scartato) restano con tempo e minuto vuoti.
+    quarta = page.locator("#riepilogo_sostituzioni_casa > tr").nth(3)
+    assert [quarta.locator(f"[name={n}]").input_value() for n in ("tempo", "minuto", "esce", "entra")] == ["0"] * 4
+    assert page.evaluate("[salvato, inviato]") == [False, False]  # il salvataggio lo decide la procedura
+
+
+def test_piu_di_sette_sostituzioni_aggiunge_righe(page):
+    s4y = Sinfonia(page)
+    s4y.login("arbitro123", "segreta")
+    s4y.apri_gara("tezze brendola")
+    elenco = [sost(2, 1, 8, 15), sost(2, 2, 9, 16), sost(2, 3, 7, 17), sost(2, 4, 6, 18),
+              sost(2, 5, 5, 10), sost(2, 6, 4, 11), sost(2, 7, 15, 8), sost(2, 8, 16, 9)]
+    esiti = s4y.compila_sostituzioni(elenco, "ospite")
+    assert [e.stato for e in esiti] == ["inserita"] * 8
+    assert [r[2:] for r in leggi_sostituzioni(page, "fuori")] == [
+        ["8", "15"], ["9", "16"], ["7", "17"], ["6", "18"], ["5", "10"], ["4", "11"], ["15", "8"], ["16", "9"]]
+    assert any("7 Sostituzioni al massimo" in m for m in s4y.messaggi_portale)  # conferma accettata
+    assert s4y.accetta_conferme is False
