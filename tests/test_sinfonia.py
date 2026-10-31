@@ -235,3 +235,45 @@ def test_entrambe_le_squadre_con_ricariche(page):
     assert [r[1].split(" (")[0] for r in c[:4]] == ["CASA UNO", "CASA DUE", "CASA TRE", "ROSSI MARIO"]
     assert [r[1].split(" (")[0] for r in o[:2]] == ["OSPITE SETTE", "VERDI ANNA"]
     assert o[11][:1] == ["4"] and o[11][1].startswith("OSPITE QUATTRO")
+
+
+def _entra(page):
+    s4y = Sinfonia(page)
+    s4y.login("arbitro123", "segreta")
+    s4y.apri_gara("tezze")
+    s4y.svolgimento_e_sicurezza()
+    return s4y
+
+
+def test_righe_con_dati_vecchi_vengono_corrette(page):
+    """Da una prova precedente: nelle righe 2 e 5 ci sono giocatori che ora non c'entrano."""
+    s4y = _entra(page)
+    page.evaluate("""() => { const s = [...document.querySelectorAll('select.gioc.ospite')];
+        s[1].selectedIndex = 3; s[4].selectedIndex = 4; }""")
+    giocatori = [g(1, "ROSSI", "MARIO", "01/01/2000"), g(2, "NUOVO", "ARRIVATO", "05/05/2012")]
+    compila_tre_fasi(s4y, giocatori, "ospite")
+    ospite = leggi_colonna(page, "ospite")
+    assert ospite[1][1].startswith("NUOVO ARRIVATO")   # al posto del giocatore vecchio
+    assert ospite[4][1] == ""                         # riga in più svuotata
+
+
+def test_finestra_aggiungi_con_etichette_e_calendario(page):
+    """Finestra fatta diversamente: etichette <label> fuori da tabelle e un calendario che si apre
+    sulla data e copre il bottone Conferma finché il campo ha il focus."""
+    s4y = _entra(page)
+    page.evaluate("""() => {
+        document.getElementById('dlg').innerHTML = `
+          <div class="titolo">Aggiungi Tesserato</div>
+          <div><label>Matricola:</label> <input id="m"></div>
+          <div><label>Cognome *:</label> <input id="c"></div>
+          <div><label>Nome *:</label> <input id="n"></div>
+          <div><label>Data di Nascita *:</label> <input id="d"> <input type="checkbox"> Sconosciuta</div>
+          <div id="cal" style="display:none;position:absolute;left:0;top:0;width:100%;height:100%;background:#eee">calendario</div>
+          <div class="ui-dialog-buttonpane"><button onclick="conferma()">Conferma</button></div>`;
+        const d = document.getElementById('d'), cal = document.getElementById('cal');
+        d.addEventListener('focus', () => { cal.style.display = 'block'; });
+        d.addEventListener('keydown', (e) => { if (e.key === 'Tab') cal.style.display = 'none'; });
+    }""")
+    report = compila_tre_fasi(s4y, [g(8, "AMBICA", "MAURIZIO", "15/01/2012")], "ospite")
+    assert [e.stato for e in report.esiti] == ["aggiunto"]
+    assert leggi_colonna(page, "ospite")[0][1] == "AMBICA MAURIZIO (15/01/2012 - ID 900)"
