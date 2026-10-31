@@ -2,7 +2,7 @@
 
 Agente per ridurre il lavoro manuale nella compilazione del referto arbitrale su Sinfonia4You.
 
-Il programma fa due cose:
+Il programma fa tre cose:
 
 1. **Lettura delle distinte.** Nella pagina web si carica la foto o il PDF della distinta della
    squadra di casa (a sinistra) e di quella ospite (a destra), poi **Prosegui**. Per ogni
@@ -14,6 +14,23 @@ Il programma fa due cose:
    "NON Presente" (passando da una scheda all'altra con "Successivo"), compila le Liste Gara di
    entrambe le squadre e preme "Salva Tutto". La pagina mostra l'avanzamento, l'esito di ogni
    giocatore (selezionato, nuovo, da verificare) e lo screenshot finale.
+
+3. **Sostituzioni dal rapportino di fine gara (facoltativo).** Nella prima schermata si può
+   caricare anche la foto del rapportino. Per ora se ne leggono solo le sostituzioni (minuto, tempo,
+   numero di chi esce e di chi entra; a sinistra la società ospitante = casa, a destra l'ospitata =
+   ospite). Nella seconda schermata compaiono in due tabelle correggibili, con accanto ai numeri i
+   nomi presi dalle distinte. Il programma le ripercorre in ordine di tempo e segnala in giallo le
+   anomalie: chi esce senza essere in campo (es. esce due volte), chi entra essendo già in campo,
+   una riserva che esce prima di entrare, numeri non in distinta, dati mancanti, cifre incerte e i
+   rientri (ammessi dal portale, ma da controllare). Gli avvisi si ricalcolano a ogni modifica,
+   anche delle distinte. Le anomalie non bloccano: le correggi tu.
+   Con **Compila Sinfonia4You**, dopo il «Salva Tutto» delle Liste Gara il referto viene riaperto
+   (le tendine delle sostituzioni si basano sulle liste salvate), si compila la scheda
+   **Sostituzioni** e si preme di nuovo «Salva Tutto». Le righe vanno in ordine di tempo, perché
+   ogni sostituzione cambia chi può uscire ed entrare dopo; le sostituzioni scritte da una prova
+   precedente vengono tolte; oltre le 7 righe si usa «Aggiungi Sostituzione». Una sostituzione che
+   il portale non accetta (es. il numero non è tra quelli che possono uscire) non viene inserita e
+   la pagina dice perché.
 
 Regole della compilazione (`app/sinfonia.py`):
 

@@ -18,10 +18,10 @@ from playwright.sync_api import Page
 from pydantic import BaseModel
 
 from . import compilazione
-from .checks import controlla
-from .extract import LetturaFallita, estrai_distinta
-from .schema import Distinta
-from .sinfonia import Esito
+from .checks import controlla, controlla_sostituzioni
+from .extract import LetturaFallita, estrai_distinta, estrai_rapportino
+from .schema import Distinta, Sostituzione
+from .sinfonia import Esito, EsitoSostituzione
 
 MAX_UPLOAD = 20 * 1024 * 1024
 TIPI_AMMESSI = {"image/jpeg", "image/png", "image/webp", "application/pdf"}
@@ -46,15 +46,14 @@ def pagina() -> FileResponse:
     return FileResponse(STATIC / "index.html")
 
 
-@app.post("/api/estrai", dependencies=[Depends(autenticato)])
-async def estrai(file: UploadFile) -> dict:
+async def _leggi_file(file: UploadFile, funzione):
     if file.content_type not in TIPI_AMMESSI:
         raise HTTPException(415, f"Formato non supportato: {file.content_type}")
     dati = await file.read(MAX_UPLOAD + 1)
     if len(dati) > MAX_UPLOAD:
         raise HTTPException(413, "File troppo grande (max 20 MB).")
     try:
-        distinta = await run_in_threadpool(estrai_distinta, dati, file.content_type)
+        return await run_in_threadpool(funzione, dati, file.content_type)
     except LetturaFallita as e:
         raise HTTPException(422, str(e))
     except anthropic.RateLimitError:
@@ -63,7 +62,31 @@ async def estrai(file: UploadFile) -> dict:
         raise HTTPException(502, f"Errore del servizio di lettura ({e.status_code}).")
     except anthropic.APIConnectionError:
         raise HTTPException(502, "Servizio di lettura non raggiungibile.")
+
+
+@app.post("/api/estrai", dependencies=[Depends(autenticato)])
+async def estrai(file: UploadFile) -> dict:
+    distinta = await _leggi_file(file, lambda d, ct: estrai_distinta(d, ct))
     return {"distinta": distinta.model_dump(), "avvisi": controlla(distinta)}
+
+
+@app.post("/api/rapportino", dependencies=[Depends(autenticato)])
+async def rapportino(file: UploadFile) -> dict:
+    """Legge le sostituzioni dal rapportino di fine gara (i controlli li fa /api/controlla-sostituzioni,
+    che conosce anche le distinte)."""
+    r = await _leggi_file(file, lambda d, ct: estrai_rapportino(d, ct))
+    return {"rapportino": r.model_dump()}
+
+
+class SquadraDaControllare(BaseModel):
+    sostituzioni: list[Sostituzione] = []
+    distinta: Distinta | None = None
+
+
+@app.post("/api/controlla-sostituzioni", dependencies=[Depends(autenticato)])
+def verifica_sostituzioni(squadre: dict[str, SquadraDaControllare]) -> dict:
+    """Avvisi sulle sostituzioni di ogni squadra, ricalcolati a ogni modifica nella pagina."""
+    return {lato: controlla_sostituzioni(s.sostituzioni, s.distinta) for lato, s in squadre.items()}
 
 
 # --- Compilazione di Sinfonia4You ---------------------------------------------------------
@@ -76,6 +99,7 @@ class RichiestaCompilazione(BaseModel):
     gara: str
     casa: Distinta | None = None
     ospite: Distinta | None = None
+    sostituzioni: dict[str, list[Sostituzione]] = {}
 
 
 @dataclass
@@ -83,6 +107,7 @@ class Lavoro:
     stato: str = "in_corso"  # "in_corso", "completato", "errore"
     messaggi: list[str] = field(default_factory=list)
     esiti: dict[str, list[dict]] = field(default_factory=lambda: {"casa": [], "ospite": []})
+    sostituzioni: dict[str, list[dict]] = field(default_factory=lambda: {"casa": [], "ospite": []})
     avvisi: dict[str, list[str]] = field(default_factory=dict)
     bottone: str | None = None
     errore: str | None = None
@@ -99,7 +124,12 @@ def _esito(e: Esito) -> dict:
             "riserva": g.riserva, "stato": e.stato, "dettaglio": e.dettaglio}
 
 
-def _esegui(lavoro: Lavoro, squadre: dict[str, Distinta], gara: str, utente: str, password: str) -> None:
+def _esito_sostituzione(e: EsitoSostituzione) -> dict:
+    return {**e.sostituzione.model_dump(exclude={"dubbi"}), "stato": e.stato, "dettaglio": e.dettaglio}
+
+
+def _esegui(lavoro: Lavoro, squadre: dict[str, Distinta], gara: str, utente: str, password: str,
+            sostituzioni: dict[str, list[Sostituzione]] | None = None) -> None:
     try:
         r = compilazione.compila(
             squadre, gara, utente, password,
@@ -108,6 +138,8 @@ def _esegui(lavoro: Lavoro, squadre: dict[str, Distinta], gara: str, utente: str
             avanzamento=lavoro.messaggi.append,
             al_giocatore=lambda lato, e: lavoro.esiti[lato].append(_esito(e)),
             prepara_pagina=PREPARA_PAGINA,
+            sostituzioni=sostituzioni,
+            alla_sostituzione=lambda lato, e: lavoro.sostituzioni[lato].append(_esito_sostituzione(e)),
         )
         lavoro.avvisi = {lato: rep.avvisi for lato, rep in r.report.items()}
         lavoro.bottone, lavoro.errore, lavoro.screenshot = r.bottone_salvataggio, r.errore, r.screenshot
@@ -130,7 +162,9 @@ def avvia_compilazione(richiesta: RichiestaCompilazione) -> dict:
         raise HTTPException(409, "C'è già una compilazione in corso.")
     id_lavoro = uuid.uuid4().hex
     _lavori[id_lavoro] = lavoro = Lavoro()
-    threading.Thread(target=_esegui, args=(lavoro, squadre, richiesta.gara, utente, password), daemon=True).start()
+    sostituzioni = {lato: s for lato, s in richiesta.sostituzioni.items() if lato in ("casa", "ospite")}
+    threading.Thread(target=_esegui, args=(lavoro, squadre, richiesta.gara, utente, password, sostituzioni),
+                     daemon=True).start()
     return {"id": id_lavoro}
 
 
@@ -143,7 +177,7 @@ def _lavoro(id_lavoro: str) -> Lavoro:
 @app.get("/api/compila/{id_lavoro}", dependencies=[Depends(autenticato)])
 def stato_compilazione(id_lavoro: str) -> dict:
     l = _lavoro(id_lavoro)
-    return {"stato": l.stato, "messaggi": l.messaggi, "esiti": l.esiti, "avvisi": l.avvisi,
+    return {"stato": l.stato, "messaggi": l.messaggi, "esiti": l.esiti, "sostituzioni": l.sostituzioni, "avvisi": l.avvisi,
             "bottone": l.bottone, "errore": l.errore, "screenshot": l.screenshot is not None}
 
 

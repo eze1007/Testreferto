@@ -10,12 +10,16 @@ import json
 import os
 import re
 from datetime import date
+from typing import TypeVar
 
 import anthropic
 import httpx
 from PIL import Image, ImageOps
+from pydantic import BaseModel
 
-from .schema import Distinta, Giocatore
+from .schema import Distinta, Giocatore, Rapportino
+
+T = TypeVar("T", bound=BaseModel)
 
 MODEL = "claude-opus-5-5"
 
@@ -90,11 +94,17 @@ class LetturaFallita(Exception):
     pass
 
 
-def estrai_distinta(dati: bytes, content_type: str, client: anthropic.Anthropic | None = None) -> Distinta:
+def _leggi(dati: bytes, content_type: str, client: anthropic.Anthropic | None, system: str,
+           richiesta: str, formato_json: str, schema: type[T]) -> T:
+    """Manda il file al modello (YepAPI se configurato, altrimenti Anthropic) e restituisce `schema`."""
     if client is None and os.environ.get("YEPAPI_API_KEY"):
-        distinta = _estrai_yepapi(dati, content_type)
-    else:
-        distinta = _estrai_anthropic(dati, content_type, client or anthropic.Anthropic())
+        return _estrai_yepapi(dati, content_type, system, richiesta + "\n\n" + formato_json, schema)
+    return _estrai_anthropic(dati, content_type, client or anthropic.Anthropic(), system, richiesta, schema)
+
+
+def estrai_distinta(dati: bytes, content_type: str, client: anthropic.Anthropic | None = None) -> Distinta:
+    distinta = _leggi(dati, content_type, client, SYSTEM_PROMPT, "Estrai i dati di ogni calciatore.",
+                      FORMATO_JSON, Distinta)
     for g in distinta.giocatori:
         g.cognome, g.nome = g.cognome.upper().strip(), g.nome.upper().strip()
         g.data_nascita = normalizza_data(g.data_nascita)
@@ -103,22 +113,23 @@ def estrai_distinta(dati: bytes, content_type: str, client: anthropic.Anthropic 
     return distinta
 
 
-def _estrai_anthropic(dati: bytes, content_type: str, client: anthropic.Anthropic) -> Distinta:
+def _estrai_anthropic(dati: bytes, content_type: str, client: anthropic.Anthropic, system: str,
+                      richiesta: str, schema: type[T]) -> T:
     response = client.beta.messages.parse(
         model=MODEL,
         max_tokens=16000,
         output_config={"effort": "high"},
         betas=["server-side-fallback-2026-07-01"],
         fallbacks="default",
-        system=SYSTEM_PROMPT,
+        system=system,
         messages=[{
             "role": "user",
             "content": [
                 _blocco_file(dati, content_type),
-                {"type": "text", "text": "Estrai i dati di ogni calciatore."},
+                {"type": "text", "text": richiesta},
             ],
         }],
-        output_format=Distinta,
+        output_format=schema,
     )
     if response.stop_reason == "refusal":
         raise LetturaFallita("Il modello ha rifiutato la richiesta.")
@@ -155,15 +166,16 @@ def _immagini(dati: bytes, content_type: str) -> list[bytes]:
     return pagine
 
 
-def _estrai_yepapi(dati: bytes, content_type: str, http: httpx.Client | None = None) -> Distinta:
+def _estrai_yepapi(dati: bytes, content_type: str, system: str, testo: str, schema: type[T],
+                   http: httpx.Client | None = None) -> T:
     contenuto = [{"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(j).decode()}}
                  for j in _immagini(dati, content_type)]
-    contenuto.append({"type": "text", "text": "Estrai i dati di ogni calciatore.\n\n" + FORMATO_JSON})
+    contenuto.append({"type": "text", "text": testo})
     richiesta = {
         "model": os.environ.get("YEPAPI_MODEL") or YEPAPI_MODEL,
         "max_tokens": 8000,
         "temperature": 0,
-        "messages": [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": contenuto}],
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": contenuto}],
     }
     http = http or httpx.Client(timeout=180)
     try:
@@ -180,9 +192,44 @@ def _estrai_yepapi(dati: bytes, content_type: str, http: httpx.Client | None = N
     testo = scelta["message"]["content"] or ""
     m = re.search(r"\{.*\}", testo, re.S)  # il JSON, anche se racchiuso tra ``` o con testo attorno
     try:
-        return Distinta.model_validate(json.loads(m.group(0) if m else testo))
+        return schema.model_validate(json.loads(m.group(0) if m else testo))
     except (ValueError, TypeError) as e:
         raise LetturaFallita(f"Risposta non valida dal modello: {str(e)[:200]}")
+
+
+# --- Rapportino di fine gara -------------------------------------------------------------
+
+SYSTEM_RAPPORTINO = """Leggi il rapportino di fine gara del calcio dilettantistico italiano \
+(modulo L.N.D.), fotografato da un arbitro e compilato a penna dai dirigenti.
+
+Per ora interessa solo la sezione "EVENTUALI VARIAZIONI NELLE FORMAZIONI DELLE SQUADRE" (le \
+sostituzioni). È divisa in due colonne: a sinistra la "Società ospitante" (squadra di casa), a destra \
+la "Società ospitata" (squadra ospite). Ogni riga ha la forma:
+"Al ___ del ___ t.  esce il n. ___  entra il n. ___"
+- dopo "Al" c'è il minuto;
+- dopo "del" c'è il tempo di gioco: 1 o 2 (può essere scritto 1°, I, 2°, II);
+- dopo "esce il n." il numero di maglia di chi esce;
+- dopo "entra il n." il numero di maglia di chi entra.
+
+Elenca le righe compilate di ogni colonna nell'ordine in cui sono scritte, dall'alto in basso. \
+Salta le righe vuote e le firme che passano sopra il modulo. Non leggere le altre sezioni \
+(ammoniti, espulsi, risultato).
+
+Riporta i numeri esattamente come sono scritti, anche se ti sembrano sbagliati (lo stesso \
+giocatore che esce due volte, minuti non in ordine): i controlli li fa il programma, tu non \
+correggere e non riordinare. Usa null per un valore che non riesci a leggere. Segnala un dubbio \
+solo per una cifra davvero incerta, con una frase breve: cosa è incerto e le letture possibili."""
+
+FORMATO_JSON_RAPPORTINO = """Rispondi solo con un oggetto JSON, senza testo prima o dopo, in questo formato:
+{"casa": [{"tempo": 1, "minuto": 25, "esce": 6, "entra": 17, "dubbi": []}],
+"ospite": [{"tempo": 2, "minuto": 1, "esce": 8, "entra": 15, "dubbi": []}], "note_generali": []}
+"casa" è la colonna della Società ospitante, "ospite" quella della Società ospitata. In \
+note_generali metti solo problemi di leggibilità della foto."""
+
+
+def estrai_rapportino(dati: bytes, content_type: str, client: anthropic.Anthropic | None = None) -> Rapportino:
+    return _leggi(dati, content_type, client, SYSTEM_RAPPORTINO,
+                  "Estrai le sostituzioni delle due squadre.", FORMATO_JSON_RAPPORTINO, Rapportino)
 
 
 TITOLARI = 11

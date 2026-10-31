@@ -12,7 +12,7 @@ import uvicorn
 from playwright.sync_api import sync_playwright
 
 from app import main
-from app.schema import Distinta, Giocatore
+from app.schema import Distinta, Giocatore, Rapportino, Sostituzione
 
 from . import portale_finto
 
@@ -32,6 +32,20 @@ LETTURE = {
 }
 
 
+def sost(tempo, minuto, esce, entra, dubbi=()):
+    return Sostituzione(tempo=tempo, minuto=minuto, esce=esce, entra=entra, dubbi=list(dubbi))
+
+
+RAPPORTINO = Rapportino(casa=[sost(1, 20, 1, 12), sost(2, 5, 1, 13)],
+                        ospite=[sost(2, 3, 9, 10, dubbi=["minuto 3 o 8"])], note_generali=[])
+
+
+def finto_rapportino(dati: bytes, content_type: str) -> Rapportino:
+    if dati == b"rotta":
+        raise main.LetturaFallita("rapportino illeggibile")
+    return RAPPORTINO.model_copy(deep=True)
+
+
 def finta_lettura(dati: bytes, content_type: str) -> Distinta:
     if dati == b"rotta":
         raise main.LetturaFallita("foto illeggibile")
@@ -45,6 +59,7 @@ def server():
     if CHROMIUM:
         os.environ.setdefault("CHROMIUM_PATH", CHROMIUM)
     originale, main.estrai_distinta = main.estrai_distinta, finta_lettura
+    originale_rapportino, main.estrai_rapportino = main.estrai_rapportino, finto_rapportino
     main.PREPARA_PAGINA = portale_finto.installa  # il server compila la copia finta del portale
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -56,6 +71,7 @@ def server():
     yield f"http://127.0.0.1:{porta}/"
     srv.should_exit = True
     main.estrai_distinta = originale
+    main.estrai_rapportino = originale_rapportino
     main.PREPARA_PAGINA = None
 
 
@@ -71,7 +87,7 @@ def page(server):
 
 
 def carica(page, lato, nome, contenuto):
-    page.set_input_files(f".card[data-lato={lato}] input[type=file]",
+    page.set_input_files(f"#caricamento .card[data-lato={lato}] input[type=file]",
                          files=[{"name": nome, "mimeType": "image/jpeg", "buffer": contenuto}])
 
 
@@ -168,3 +184,78 @@ def test_piu_di_11_titolari_blocca_la_compilazione(page):
     page.wait_for_timeout(300)
     assert messaggi and "13 titolari" in messaggi[0]
     assert page.locator("#compilazione").is_hidden()
+
+
+def avvisi_sost(page, lato):
+    return page.locator(f"#sost-{lato} .avvisi li").all_inner_texts()
+
+
+def test_rapportino_sostituzioni_controllate_e_compilate(page):
+    carica(page, "casa", "casa.jpg", b"casa.jpg")
+    carica(page, "ospite", "ospite.jpg", b"ospite.jpg")
+    carica(page, "rapportino", "rapportino.jpg", b"rapportino")
+    page.click("#prosegui")
+    page.locator("#revisione").wait_for()
+    assert page.locator("#box-sostituzioni").is_visible()
+
+    casa = page.locator("#sost-casa")
+    assert casa.locator("tr[data-i]").count() == 2
+    assert casa.locator("tr[data-i] [data-k=esce]").evaluate_all("els => els.map(e => e.value)") == ["1", "1"]
+    page.wait_for_function("document.querySelectorAll('#sost-casa .avvisi li').length > 0")
+    assert avvisi_sost(page, "casa") == ["5' del 2° t.: il n. 13 non è in distinta.",
+                                         "5' del 2° t.: esce il n. 1, ma non è in campo (uscito al 20' del 1° t.)."]
+    assert casa.locator("tr.anomalia").count() == 1 and casa.locator("tr[data-i='1']").get_attribute("class") == "anomalia"
+    assert casa.locator("tr[data-i='0'] [data-chi=esce]").inner_text() == "ROSSI MARIO"   # nome dalla distinta
+    assert casa.locator("tr[data-i='0'] [data-chi=entra]").inner_text() == "BIANCHI LUCA"
+    assert "minuto 3 o 8" in " ".join(avvisi_sost(page, "ospite"))
+
+    # L'arbitro toglie la riga sbagliata e scrive quella giusta.
+    casa.locator("tr[data-i='1'] .togli").click()
+    casa.get_by_text("Nessuna anomalia").wait_for()
+    assert casa.locator(".avvisi").count() == 0
+    casa.locator(".aggiungi").click()
+    nuova = casa.locator("tr[data-i='1']")
+    assert nuova.locator("[data-k=tempo]").input_value() == "1"   # tempo della riga prima
+    nuova.locator("[data-k=tempo]").select_option("2")
+    for k, v in (("minuto", "15"), ("esce", "12"), ("entra", "1")):
+        nuova.locator(f"[data-k={k}]").fill(v)
+        nuova.locator(f"[data-k={k}]").dispatch_event("change")
+    page.wait_for_function("document.querySelectorAll('#sost-casa .avvisi li').length === 1")
+    assert avvisi_sost(page, "casa") == ["15' del 2° t.: rientra il n. 1 (uscito al 20' del 1° t.). Controlla che sia giusto."]
+
+    # Cambiare la distinta ricalcola i controlli: se il 12 diventa titolare, non può più entrare.
+    page.locator("#tabella-casa input[data-k=riserva]").nth(1).uncheck()
+    page.wait_for_function("document.querySelectorAll('#sost-casa .avvisi li').length === 2")
+    assert "20' del 1° t.: entra il n. 12, ma è già in campo (titolare)." in avvisi_sost(page, "casa")
+    page.locator("#tabella-casa input[data-k=riserva]").nth(1).check()
+    page.wait_for_function("document.querySelectorAll('#sost-casa .avvisi li').length === 1")
+
+    page.fill("#gara", "tezze brendola")
+    domande = []
+    page.once("dialog", lambda d: (domande.append(d.message), d.accept()))
+    page.click("#avvia")
+    page.locator("#esito-finale .ok").wait_for(timeout=90_000)
+    assert "sostituzioni (casa 2, ospite 1)" in domande[0] and "3 da controllare" in domande[0]
+    passi = page.locator("#passi").inner_text()
+    assert "Riapertura del referto per le Sostituzioni" in passi and "Sostituzioni salvate" in passi
+    assert page.locator("#esiti-casa .esiti-sost .esito").all_inner_texts() == ["Inserita", "Inserita"]
+    assert page.locator("#esiti-ospite .esiti-sost .esito").all_inner_texts() == ["Inserita"]
+
+
+def test_rapportino_illeggibile(page):
+    carica(page, "casa", "casa.jpg", b"casa.jpg")
+    carica(page, "ospite", "ospite.jpg", b"ospite.jpg")
+    carica(page, "rapportino", "rapportino.jpg", b"rotta")
+    page.click("#prosegui")
+    page.locator("#revisione").wait_for()
+    assert "rapportino illeggibile" in page.locator("#errore-rapportino").inner_text()
+    assert "Nessuna sostituzione" in page.locator("#sost-casa").inner_text()  # si possono scrivere a mano
+    assert page.locator("#tabella-casa input[data-k=cognome]").count() == 2   # le distinte ci sono
+
+
+def test_senza_rapportino_niente_sostituzioni(page):
+    carica(page, "casa", "casa.jpg", b"casa.jpg")
+    carica(page, "ospite", "ospite.jpg", b"ospite.jpg")
+    page.click("#prosegui")
+    page.locator("#revisione").wait_for()
+    assert page.locator("#box-sostituzioni").is_hidden()
