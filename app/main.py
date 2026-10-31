@@ -108,6 +108,7 @@ class Lavoro:
     messaggi: list[str] = field(default_factory=list)
     esiti: dict[str, list[dict]] = field(default_factory=lambda: {"casa": [], "ospite": []})
     sostituzioni: dict[str, list[dict]] = field(default_factory=lambda: {"casa": [], "ospite": []})
+    verifica: list[str] | None = None  # controllo delle sostituzioni sul portale dopo il salvataggio
     avvisi: dict[str, list[str]] = field(default_factory=dict)
     bottone: str | None = None
     errore: str | None = None
@@ -142,6 +143,7 @@ def _esegui(lavoro: Lavoro, squadre: dict[str, Distinta], gara: str, utente: str
             alla_sostituzione=lambda lato, e: lavoro.sostituzioni[lato].append(_esito_sostituzione(e)),
         )
         lavoro.avvisi = {lato: rep.avvisi for lato, rep in r.report.items()}
+        lavoro.verifica = r.verifica
         lavoro.bottone, lavoro.errore, lavoro.screenshot = r.bottone_salvataggio, r.errore, r.screenshot
         lavoro.stato = "errore" if r.errore else "completato"
     except Exception as e:  # es. browser non avviabile
@@ -177,7 +179,7 @@ def _lavoro(id_lavoro: str) -> Lavoro:
 @app.get("/api/compila/{id_lavoro}", dependencies=[Depends(autenticato)])
 def stato_compilazione(id_lavoro: str) -> dict:
     l = _lavoro(id_lavoro)
-    return {"stato": l.stato, "messaggi": l.messaggi, "esiti": l.esiti, "sostituzioni": l.sostituzioni, "avvisi": l.avvisi,
+    return {"stato": l.stato, "messaggi": l.messaggi, "esiti": l.esiti, "sostituzioni": l.sostituzioni, "verifica": l.verifica, "avvisi": l.avvisi,
             "bottone": l.bottone, "errore": l.errore, "screenshot": l.screenshot is not None}
 
 

@@ -239,6 +239,10 @@ def test_rapportino_sostituzioni_controllate_e_compilate(page):
     assert "sostituzioni (casa 2, ospite 1)" in domande[0] and "3 da controllare" in domande[0]
     passi = page.locator("#passi").inner_text()
     assert "Riapertura del referto per le Sostituzioni" in passi and "Sostituzioni salvate" in passi
+    # Dopo il salvataggio il referto viene riaperto e le sostituzioni lette dal portale.
+    assert "Verifica sul portale: tutte le sostituzioni inserite risultano salvate." in passi
+    finale = page.locator("#esito-finale").inner_text()
+    assert "Sostituzioni verificate sul portale." in finale and "finestra anonima" in finale
     assert page.locator("#esiti-casa .esiti-sost .esito").all_inner_texts() == ["Inserita", "Inserita"]
     assert page.locator("#esiti-ospite .esiti-sost .esito").all_inner_texts() == ["Inserita"]
     # Entrambi i "Salva Tutto" sono arrivati al portale prima che il browser si chiudesse:
