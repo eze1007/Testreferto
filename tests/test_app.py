@@ -200,3 +200,14 @@ def test_maiuscole_minuscole_e_date_dopo_la_lettura():
     assert (dalla_pozza.cognome, dalla_pozza.nome, dalla_pozza.data_nascita) == ("DALLA POZZA", "GIOVANNI", "29/07/2013")
     assert (hena.cognome, hena.nome, hena.data_nascita) == ("HENA", "ANDREA", "29/06/2013")
     assert not any("divisione" in a for a in controlla(risultato))   # "Dalla Pozza" = "DALLA POZZA"
+
+
+def test_aggiunti_a_penna_in_fondo_sono_riserve():
+    # Come la distinta del Brendola: la riga cancellata non viene letta, il 10 e l'11 sono scritti a
+    # penna in fondo alla lista. Titolari = primi 11 della lista, quindi 10 e 11 restano riserve.
+    numeri = [1, 2, 3, 4, 5, 6, 7, 8, 9, 13, 14, 15, 16, 17, 18, 10, 11]
+    letti = [Giocatore(testo_originale=f"GIOCATORE N{n}", numero=n, cognome="GIOCATORE", nome=f"N{n}",
+                       data_nascita="01/01/2012", dubbi=[]) for n in numeri]
+    risultato = estrai_distinta(b"%PDF", "application/pdf", client=FakeClient(parsed=distinta(letti)))
+    assert [g.numero for g in risultato.giocatori if not g.riserva] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 13, 14]
+    assert [g.numero for g in risultato.giocatori if g.riserva] == [15, 16, 17, 18, 10, 11]
