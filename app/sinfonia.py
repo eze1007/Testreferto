@@ -86,10 +86,20 @@ def parole_gara(testo: str) -> list[str]:
 
 
 def corrisponde(cercate: list[str], testo_riga: str) -> bool:
-    """Ogni parola cercata deve essere l'inizio di una parola della riga: "TEZZE" trova
-    "CALCIO TEZZE", "BRENDOL" trova "BRENDOLA"."""
-    parole_riga = re.sub(r"[^A-Z0-9]+", " ", testo_riga.upper()).split()
-    return all(any(p.startswith(c) for p in parole_riga) for c in cercate)
+    """Vale per qualsiasi squadra: ogni parola scritta deve trovarsi nella riga, anche solo come
+    inizio di parola ("TEZZE" trova "CALCIO TEZZE", "BRENDOL" trova "BRENDOLA"). Le abbreviazioni
+    con il punto valgono per la parola intera: "S.LAZZARO" corrisponde a "SAN LAZZARO"."""
+    parole_riga = re.findall(r"[A-Z0-9]+\.?", testo_riga.upper())
+
+    def trovata(c: str) -> bool:
+        for p in parole_riga:
+            abbreviata = p.endswith(".")
+            p = p.rstrip(".")
+            if p.startswith(c) or (abbreviata and c.startswith(p)):
+                return True
+        return False
+
+    return all(trovata(c) for c in cercate)
 
 
 class Sinfonia:

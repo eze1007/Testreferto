@@ -187,3 +187,20 @@ def test_ricerca_gara_non_trovata_o_ambigua(page):
     portale_finto.installa(page)
     with pytest.raises(RuntimeError, match="Più gare da refertare"):
         s4y.apri_gara("2026")  # corrisponde a due gare con il +
+
+
+@pytest.mark.parametrize("scritto, riga, atteso", [
+    ("San Lazzaro", "25/10/2026 S.LAZZARO SERENISSIMA ALTAIR 430", True),
+    ("Serenissima", "25/10/2026 S.LAZZARO SERENISSIMA ALTAIR 430", True),
+    ("San Lazzaro vs Altair", "25/10/2026 S.LAZZARO SERENISSIMA ALTAIR 430", True),
+    ("Real Lugo", "24/10/2026 REAL LUGO A.S.D. CALCIONOVOLEDO VILLAVERLA 28", True),
+    ("Villaverla", "24/10/2026 REAL LUGO A.S.D. CALCIONOVOLEDO VILLAVERLA 28", True),
+    ("San Pietro", "04/10/2026 MONTECCHIO S.PIETRO SAN VITALE 1995 120", True),
+    ("Sarego Liona", "11/10/2026 SAN GIOVANNI ILARIONE SAREGO LIONA ACADEMY 756", True),
+    ("San Zeno", "18/10/2026 RALDON SAN ZENO VERONA 1919 ARL 284", True),
+    ("San Lazzaro", "18/10/2026 RALDON SAN ZENO VERONA 1919 ARL 284", False),
+    ("Tezze", "25/10/2026 S.LAZZARO SERENISSIMA ALTAIR 430", False),
+])
+def test_ricerca_qualsiasi_squadra(scritto, riga, atteso):
+    from app.sinfonia import corrisponde, parole_gara
+    assert corrisponde(parole_gara(scritto), riga) is atteso
