@@ -11,7 +11,7 @@ if not "%~1"=="--da-temp" (
 set "PROGETTO=%~2"
 set "ZIP=%TEMP%\testreferto.zip"
 set "ESTRATTO=%TEMP%\testreferto_aggiornamento"
-set "URL=https://github.com/eze1007/Testreferto/archive/refs/heads/claude/relaxed-planck-yatgnx.zip"
+set "URL=https://github.com/eze1007/Testreferto/archive/refs/heads/main.zip"
 
 echo.
 echo === Aggiornamento Testreferto ===
