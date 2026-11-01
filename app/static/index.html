@@ -18,6 +18,7 @@
     }
   }
   * { box-sizing:border-box; }
+  [hidden] { display:none !important; }  /* nascosto vale anche per gli elementi con display (es. .griglia) */
   body { margin:0; font:15px/1.45 system-ui, -apple-system, sans-serif; background:var(--bg); color:var(--text); }
   main { max-width:1200px; margin:0 auto; padding:16px; }
   h1 { font-size:20px; margin:4px 0 16px; }
@@ -107,8 +108,12 @@
   @media (prefers-color-scheme: dark) { .esito.inserita { background:#14361f; color:#86efac; } }
   .esiti h3 { font-size:14px; margin:14px 0 4px; color:var(--muted); }
   .nota-verifica { font-size:13px; color:var(--muted); margin:8px 0 0; }
-  .compila .opzione { flex:1 1 100%; display:flex; align-items:center; gap:8px; font-size:14px; color:var(--text); }
-  .compila .opzione input { display:inline-block; width:auto; margin:0; }
+  .card.fasi { margin-top:16px; }
+  .fase { display:flex; align-items:flex-start; gap:10px; padding:6px 0; cursor:pointer; font-size:14px; }
+  .fase input { flex:none; width:18px; height:18px; margin:1px 0 0; }
+  .nota-fasi { font-size:13px; color:var(--muted); margin:8px 0 0; }
+  .riepilogo-fasi { flex:1 1 100%; margin:0; padding-left:20px; font-size:14px; }
+  .riepilogo-fasi li { padding:2px 0; }
   .esito.caricato { background:#dcfce7; color:#14532d; } .esito.gia_presente { background:#dbeafe; color:#1e3a8a; }
   @media (prefers-color-scheme: dark) {
     .esito.caricato { background:#14361f; color:#86efac; } .esito.gia_presente { background:#172a4d; color:#93c5fd; }
@@ -174,13 +179,24 @@
       </div>
       <button class="rimuovi" hidden>Rimuovi</button>
     </div>
+    <div class="card fasi">
+      <h2>Cosa deve fare il programma</h2>
+      <label class="fase"><input type="checkbox" id="fase-liste" checked>
+        <span><strong>Liste Gara</strong>: Svolgimento, Sicurezza, titolari e riserve. Servono le due distinte.</span></label>
+      <label class="fase"><input type="checkbox" id="fase-sostituzioni" checked>
+        <span><strong>Sostituzioni</strong>: dal rapportino di fine gara. Serve il rapportino.</span></label>
+      <label class="fase"><input type="checkbox" id="fase-allegati" checked>
+        <span><strong>Allegati</strong>: distinte e rapportino nella scheda Allegati. Serve almeno un file.</span></label>
+      <p class="nota-fasi">Togli la spunta a ciò che è già fatto: per esempio, solo «Allegati» per allegare i file
+        senza ricompilare le liste. Si leggono solo i file che servono.</p>
+    </div>
     <div class="azioni"><button class="primario" id="prosegui" disabled>Prosegui</button></div>
     <div class="stato" id="stato-caricamento"></div>
   </section>
 
   <!-- Schermata 2: revisione dei giocatori letti -->
   <section id="revisione" hidden>
-    <div class="griglia">
+    <div class="griglia" id="griglia-distinte">
       <div class="card casa"><h2 id="titolo-casa">Squadra di casa</h2><div id="tabella-casa"></div></div>
       <div class="card ospite"><h2 id="titolo-ospite">Squadra ospite</h2><div id="tabella-ospite"></div></div>
     </div>
@@ -197,13 +213,8 @@
         <input type="text" id="gara" placeholder="es. Tezze, oppure Tezze vs Brendola" autocomplete="off">
       </label>
       <button class="primario" id="avvia">Compila Sinfonia4You</button>
-      <label class="opzione"><input type="checkbox" id="allega" checked>
-        Allega le distinte e il rapportino nella scheda Allegati</label>
-      <p class="nota">Compila Svolgimento, Sicurezza e Liste Gara delle due squadre e preme «Salva Tutto».
-        Se hai caricato il rapportino, poi riapre il referto, compila le Sostituzioni e salva di nuovo.
-        Gli allegati vengono caricati come «Lista calciatori» della loro squadra e il rapportino come
-        «Modulo ammoniti/espulsi»; quelli già presenti non vengono ricaricati.
-        «Invia al G.S.» non viene mai premuto.</p>
+      <ul class="riepilogo-fasi" id="riepilogo-fasi"></ul>
+      <p class="nota">«Invia al G.S.» non viene mai premuto. Per cambiare cosa fare, torna indietro.</p>
     </div>
     <div class="azioni">
       <button class="secondario" id="indietro">Indietro</button>
@@ -214,7 +225,7 @@
   <!-- Schermata 3: compilazione di Sinfonia4You -->
   <section id="compilazione" hidden>
     <div class="card"><h2>Compilazione Sinfonia4You</h2><ul class="passi" id="passi"></ul><div id="esito-finale"></div></div>
-    <div class="griglia" style="margin-top:16px">
+    <div class="griglia" id="griglia-esiti" style="margin-top:16px">
       <div class="card casa"><h2>Squadra di casa</h2><div id="esiti-casa" class="esiti"></div></div>
       <div class="card ospite"><h2>Squadra ospite</h2><div id="esiti-ospite" class="esiti"></div></div>
     </div>
@@ -238,7 +249,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"
 
 // --- Schermata 1 -------------------------------------------------------------------------
 
-for (const card of document.querySelectorAll("#caricamento .card")) {
+for (const card of document.querySelectorAll("#caricamento .card[data-lato]")) {  // le caselle dei file
   const lato = card.dataset.lato, drop = $(".drop", card), input = $("input", card);
   input.addEventListener("change", () => imposta(lato, input.files[0] || null));
   drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("sopra"); });
@@ -259,8 +270,41 @@ function imposta(lato, f) {
       ? `<img src="${URL.createObjectURL(f)}" alt="">` : `<div class="icona">📑</div>`)
       + `<div class="nome-file">${esc(f.name)}</div>`;
   }
-  $("#prosegui").disabled = !(file.casa && file.ospite);
+  aggiornaProsegui();
 }
+
+const FASI = ["liste", "sostituzioni", "allegati"];
+// Fasi scelte nella prima schermata e, per la compilazione in corso, quelle mandate.
+let fasiScelte = [], fasiInviate = [];
+const spuntate = () => Object.fromEntries(FASI.map((f) => [f, $(`#fase-${f}`).checked]));
+
+// Le fasi spuntate che si possono fare con i file caricati, e cosa manca.
+function fasiDaFare() {
+  const s = spuntate(), fare = [], note = [];
+  let blocco = false;
+  if (s.liste) {
+    if (file.casa && file.ospite) fare.push("liste");
+    else { note.push("per le Liste Gara servono le due distinte"); blocco = true; }
+  }
+  if (s.sostituzioni) {
+    if (file.rapportino) fare.push("sostituzioni");
+    else note.push("senza il rapportino le Sostituzioni vengono saltate");
+  }
+  if (s.allegati) {
+    if (file.casa || file.ospite || file.rapportino) fare.push("allegati");
+    else note.push("per gli Allegati serve almeno un file");
+  }
+  if (!FASI.some((f) => s[f])) note.push("spunta almeno una cosa da fare");
+  return { fare, note, pronto: fare.length > 0 && !blocco };
+}
+
+function aggiornaProsegui() {
+  const { note, pronto } = fasiDaFare(), qualcosa = file.casa || file.ospite || file.rapportino;
+  $("#prosegui").disabled = !pronto;
+  const testo = qualcosa && note.length ? note.join("; ") + "." : "";
+  $("#stato-caricamento").textContent = testo.charAt(0).toUpperCase() + testo.slice(1);
+}
+for (const f of FASI) $(`#fase-${f}`).addEventListener("change", aggiornaProsegui);
 
 async function leggi(lato) {
   const fd = new FormData();
@@ -273,22 +317,26 @@ async function leggi(lato) {
 
 $("#prosegui").addEventListener("click", async () => {
   const bottone = $("#prosegui"), stato = $("#stato-caricamento");
+  const { fare } = fasiDaFare();
+  fasiScelte = fare;
+  // Si leggono solo i file che servono: le distinte per le Liste Gara, il rapportino per le
+  // Sostituzioni. Per gli allegati i file non si leggono. Quelli già letti non si rileggono.
+  const daLeggere = [...(fare.includes("liste") ? LATI : []), ...(fare.includes("sostituzioni") ? ["rapportino"] : [])];
+  const rapportinoNuovo = fare.includes("sostituzioni") && !dati.rapportino;
   bottone.disabled = true;
-  stato.textContent = "Lettura in corso, può richiedere fino a un minuto…";
-  // Distinte e rapportino si leggono in parallelo; quelli già letti non si rileggono.
-  const daLeggere = file.rapportino ? [...LATI, "rapportino"] : LATI;
-  const rapportinoNuovo = file.rapportino && !dati.rapportino;
+  if (daLeggere.some((l) => !dati[l])) stato.textContent = "Lettura in corso, può richiedere fino a un minuto…";
   const risultati = await Promise.allSettled(daLeggere.map((l) => dati[l] ? dati[l] : leggi(l)));
   daLeggere.forEach((l, i) => {
     dati[l] = risultati[i].status === "fulfilled" ? risultati[i].value : { errore: risultati[i].reason.message };
   });
-  bottone.disabled = false;
-  stato.textContent = "";
-  LATI.forEach(mostraTabella);
-  if (!file.rapportino) sost = null;
-  else if (rapportinoNuovo || !sost) sost = dati.rapportino.rapportino
+  aggiornaProsegui();
+  $("#griglia-distinte").hidden = !fare.includes("liste");
+  if (fare.includes("liste")) LATI.forEach(mostraTabella);
+  if (!fare.includes("sostituzioni")) sost = null;
+  else if (rapportinoNuovo || !sost) sost = dati.rapportino && dati.rapportino.rapportino
     ? { casa: dati.rapportino.rapportino.casa, ospite: dati.rapportino.rapportino.ospite } : null;
   mostraSostituzioni();
+  mostraRiepilogoFasi();
   $("#caricamento").hidden = true;
   $("#revisione").hidden = false;
   scrollTo(0, 0);
@@ -344,12 +392,12 @@ function nomeGiocatore(lato, numero) {
 }
 
 function mostraSostituzioni() {
-  const box = $("#box-sostituzioni");
-  box.hidden = !file.rapportino;
-  $("#errore-rapportino").innerHTML = dati.rapportino && dati.rapportino.errore
+  const box = $("#box-sostituzioni"), attive = fasiScelte.includes("sostituzioni");
+  box.hidden = !attive;
+  $("#errore-rapportino").innerHTML = attive && dati.rapportino && dati.rapportino.errore
     ? `<div class="errore">Lettura del rapportino non riuscita: ${esc(dati.rapportino.errore)}<br>
        Torna indietro e riprova, oppure scrivi qui sotto le sostituzioni.</div>` : "";
-  if (!file.rapportino) return;
+  if (!attive) return;
   if (!sost) sost = { casa: [], ospite: [] };
   for (const l of LATI) tabellaSostituzioni(l);
   controllaSostituzioni();
@@ -430,6 +478,18 @@ function anomalieSostituzioni() {
   return sost ? LATI.reduce((n, l) => n + (avvisiSost[l] || []).length, 0) : 0;
 }
 
+const NOMI_ALLEGATI = { casa: "distinta di casa", ospite: "distinta ospite", rapportino: "rapportino" };
+const allegabili = () => ["casa", "ospite", "rapportino"].filter((k) => file[k]);
+
+function mostraRiepilogoFasi() {
+  const testi = {
+    liste: "Liste Gara: Svolgimento, Sicurezza, titolari e riserve delle due squadre, poi «Salva Tutto».",
+    sostituzioni: "Sostituzioni: le inserisce dalla tabella qui sopra (con le Liste Gara già salvate) e salva.",
+    allegati: `Allegati: ${allegabili().map((k) => NOMI_ALLEGATI[k]).join(", ")}; quelli già presenti non vengono ricaricati.`,
+  };
+  $("#riepilogo-fasi").innerHTML = fasiScelte.map((f) => `<li>${esc(testi[f])}</li>`).join("");
+}
+
 $("#indietro").addEventListener("click", () => {
   $("#revisione").hidden = true;
   $("#caricamento").hidden = false;
@@ -454,8 +514,6 @@ $("#scarica").addEventListener("click", () => {
 const ETICHETTE = { selezionato: "Selezionato", aggiunto: "Nuovo", da_verificare: "Da verificare", errore: "Errore",
                     inserita: "Inserita", caricato: "Caricato", gia_presente: "Già presente" };
 
-const NOMI_ALLEGATI = { casa: "distinta di casa", ospite: "distinta ospite", rapportino: "rapportino" };
-
 // Il file come base64 (senza il prefisso "data:...;base64,").
 const base64 = (f) => new Promise((ok, ko) => {
   const r = new FileReader();
@@ -465,28 +523,40 @@ const base64 = (f) => new Promise((ok, ko) => {
 });
 
 $("#avvia").addEventListener("click", async () => {
-  const gara = $("#gara").value.trim(), squadre = squadreLette();
+  const gara = $("#gara").value.trim(), fare = [...fasiScelte];
+  const squadre = fare.includes("liste") ? squadreLette() : {};
   if (!gara) { $("#gara").focus(); return; }
-  if (!Object.keys(squadre).length) { alert("Nessuna squadra letta."); return; }
-  for (const l of LATI) {
-    const titolari = squadre[l] ? squadre[l].giocatori.filter((g) => !g.riserva).length : 0;
-    if (titolari > 11) {
-      alert(`Squadra ${l === "casa" ? "di casa" : "ospite"}: ${titolari} titolari, ma in Sinfonia4You ce ne stanno 11.\n` +
-            "Metti la R ai giocatori che vanno tra le riserve.");
+  if (!fare.length) { alert("Torna indietro e scegli cosa deve fare il programma."); return; }
+  let avviso = "";
+  if (fare.includes("liste")) {
+    if (!Object.keys(squadre).length) { alert("Nessuna squadra letta."); return; }
+    for (const l of LATI) {
+      const titolari = squadre[l] ? squadre[l].giocatori.filter((g) => !g.riserva).length : 0;
+      if (titolari > 11) {
+        alert(`Squadra ${l === "casa" ? "di casa" : "ospite"}: ${titolari} titolari, ma in Sinfonia4You ce ne stanno 11.\n` +
+              "Metti la R ai giocatori che vanno tra le riserve.");
+        return;
+      }
+    }
+    const mancanti = LATI.filter((l) => !squadre[l]);
+    avviso += "\n• Liste Gara: Svolgimento, Sicurezza, titolari e riserve, poi «Salva Tutto»." +
+              (mancanti.length ? ` Attenzione: manca la squadra ${mancanti[0] === "casa" ? "di casa" : "ospite"}.` : "");
+  }
+  if (fare.includes("sostituzioni")) {
+    if (!sost || !(sost.casa.length || sost.ospite.length)) {
+      alert("Nessuna sostituzione da inserire: aggiungile nella tabella, oppure torna indietro e togli la spunta da Sostituzioni.");
       return;
     }
+    const anomalie = anomalieSostituzioni();
+    avviso += `\n• Inserire le sostituzioni (casa ${sost.casa.length}, ospite ${sost.ospite.length})` +
+              (anomalie ? `: ATTENZIONE, ${anomalie} da controllare.` : ".");
   }
-  const mancanti = LATI.filter((l) => !squadre[l]);
-  let avviso = mancanti.length ? `\nAttenzione: manca la squadra ${mancanti[0] === "casa" ? "di casa" : "ospite"}.` : "";
-  const anomalie = anomalieSostituzioni();
-  if (sost) avviso += `\nPoi verranno inserite le sostituzioni (casa ${sost.casa.length}, ospite ${sost.ospite.length})` +
-                      (anomalie ? `: ATTENZIONE, ${anomalie} da controllare.` : ".");
-  const daAllegare = $("#allega").checked ? ["casa", "ospite", "rapportino"].filter((k) => file[k]) : [];
-  if (daAllegare.length) avviso += `\nPoi verranno allegati: ${daAllegare.map((k) => NOMI_ALLEGATI[k]).join(", ")}.`;
-  if (!confirm(`Compilare Sinfonia4You per la gara «${gara}» e premere «Salva Tutto»?${avviso}`)) return;
+  const daAllegare = fare.includes("allegati") ? allegabili() : [];
+  if (daAllegare.length) avviso += `\n• Allegare: ${daAllegare.map((k) => NOMI_ALLEGATI[k]).join(", ")}.`;
+  if (!confirm(`Sinfonia4You, gara «${gara}». Il programma farà:${avviso}`)) return;
 
-  const richiesta = { gara, ...squadre };
-  if (sost) richiesta.sostituzioni = { casa: sost.casa, ospite: sost.ospite };
+  const richiesta = { gara, fasi: fare, ...squadre };
+  if (fare.includes("sostituzioni")) richiesta.sostituzioni = { casa: sost.casa, ospite: sost.ospite };
   if (daAllegare.length) {
     richiesta.allegati = {};
     try {
@@ -500,6 +570,8 @@ $("#avvia").addEventListener("click", async () => {
   const body = await r.json().catch(() => ({}));
   if (!r.ok) { alert("Impossibile avviare: " + (body.detail || r.statusText)); return; }
 
+  fasiInviate = fare;
+  $("#griglia-esiti").hidden = !(fare.includes("liste") || fare.includes("sostituzioni"));
   $("#revisione").hidden = true;
   $("#compilazione").hidden = false;
   $("#torna").disabled = true;
@@ -538,7 +610,8 @@ async function segui(id) {
        locale vecchia che Sinfonia tiene nel browser: apri il referto in una finestra anonima, oppure cancella i dati del
        sito servizi.aia-figc.it. Non premere «Salva» in una finestra che mostra le righe vuote.</p>`;
   $("#esito-finale").innerHTML = s.stato === "completato"
-    ? `<div class="ok">Referto salvato con «${esc(s.bottone)}».${problemi ? ` ${problemi} giocatori da sistemare a mano.` : ""}` +
+    ? `<div class="ok">${s.bottone ? `Referto salvato con «${esc(s.bottone)}».` : "Completato."}` +
+      `${problemi ? ` ${problemi} giocatori da sistemare a mano.` : ""}` +
       `${sostNo ? ` ${sostNo} sostituzioni non inserite: sistemale a mano.` : ""}` +
       `${verificate ? " Sostituzioni verificate sul portale." : ""}` +
       `${allegatiNo ? ` ${allegatiNo} allegati non caricati: vedi il riquadro Allegati.` : ""}</div>${verifica}`
@@ -558,18 +631,22 @@ function mostraAllegati(allegati) {
 }
 
 function mostraEsiti(lato, esiti, avvisi, sostituzioni = []) {
-  const box = $(`#esiti-${lato}`);
-  if (!dati[lato]) { box.innerHTML = `<div class="vuoto">Squadra non inviata.</div>`; return; }
-  if (!esiti.length && !avvisi.length) { box.innerHTML = `<div class="vuoto">In attesa…</div>`; return; }
-  box.innerHTML = (avvisi.length ? `<div class="avvisi"><ul>${avvisi.map((a) => `<li>${esc(a)}</li>`).join("")}</ul></div>` : "")
+  const box = $(`#esiti-${lato}`), liste = fasiInviate.includes("liste");
+  let elenco = "";
+  if (!liste) elenco = "";
+  else if (!dati[lato]) elenco = `<div class="vuoto">Squadra non inviata.</div>`;
+  else if (!esiti.length && !avvisi.length) elenco = `<div class="vuoto">In attesa…</div>`;
+  else elenco = (avvisi.length ? `<div class="avvisi"><ul>${avvisi.map((a) => `<li>${esc(a)}</li>`).join("")}</ul></div>` : "")
     + `<table>${esiti.map((e) => `<tr>
         <td style="width:2.5em;text-align:center">${esc(e.numero)}</td>
         <td>${esc(e.cognome)} ${esc(e.nome)}${e.dettaglio ? `<div class="dettaglio">${esc(e.dettaglio)}</div>` : ""}</td>
-        <td style="text-align:right"><span class="esito ${e.stato}">${ETICHETTE[e.stato]}</span></td></tr>`).join("")}</table>`
+        <td style="text-align:right"><span class="esito ${e.stato}">${ETICHETTE[e.stato]}</span></td></tr>`).join("")}</table>`;
+  box.innerHTML = elenco
     + (sostituzioni.length ? `<h3>Sostituzioni</h3><table class="esiti-sost">${sostituzioni.map((e) => `<tr>
         <td>${esc(e.minuto ?? "?")}' ${esc(e.tempo ?? "?")}° t. · esce ${esc(e.esce ?? "?")} · entra ${esc(e.entra ?? "?")}
           ${e.dettaglio ? `<div class="dettaglio">${esc(e.dettaglio)}</div>` : ""}</td>
-        <td style="text-align:right"><span class="esito ${e.stato}">${ETICHETTE[e.stato]}</span></td></tr>`).join("")}</table>` : "");
+        <td style="text-align:right"><span class="esito ${e.stato}">${ETICHETTE[e.stato]}</span></td></tr>`).join("")}</table>`
+      : (!liste && fasiInviate.includes("sostituzioni") ? `<div class="vuoto">In attesa…</div>` : ""));
 }
 
 $("#torna").addEventListener("click", () => {

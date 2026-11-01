@@ -110,6 +110,11 @@ class RichiestaCompilazione(BaseModel):
     sostituzioni: dict[str, list[Sostituzione]] = {}
     # File caricati nella prima schermata da allegare al referto: "casa", "ospite", "rapportino".
     allegati: dict[str, FileAllegato] = {}
+    # Cosa fare: "liste", "sostituzioni", "allegati". Se manca: tutto ciò per cui ci sono i dati.
+    fasi: list[str] | None = None
+
+
+FASI = ("liste", "sostituzioni", "allegati")
 
 
 def _file_allegati(allegati: dict[str, FileAllegato]) -> dict[str, tuple[bytes, str]]:
@@ -157,7 +162,7 @@ def _esito_sostituzione(e: EsitoSostituzione) -> dict:
 
 def _esegui(lavoro: Lavoro, squadre: dict[str, Distinta], gara: str, utente: str, password: str,
             sostituzioni: dict[str, list[Sostituzione]] | None = None,
-            allegati: dict[str, tuple[bytes, str]] | None = None) -> None:
+            allegati: dict[str, tuple[bytes, str]] | None = None, fasi: set[str] | None = None) -> None:
     try:
         r = compilazione.compila(
             squadre, gara, utente, password,
@@ -169,6 +174,7 @@ def _esegui(lavoro: Lavoro, squadre: dict[str, Distinta], gara: str, utente: str
             sostituzioni=sostituzioni,
             alla_sostituzione=lambda lato, e: lavoro.sostituzioni[lato].append(_esito_sostituzione(e)),
             allegati=allegati,
+            fasi=fasi,
             all_allegato=lambda e: lavoro.allegati.append(
                 {"descrizione": e.descrizione, "stato": e.stato, "dettaglio": e.dettaglio}),
         )
@@ -188,15 +194,32 @@ def avvia_compilazione(richiesta: RichiestaCompilazione) -> dict:
     if not utente or not password:
         raise HTTPException(503, "SINFONIA_USER e SINFONIA_PASSWORD non configurati sul server.")
     squadre = {lato: d for lato in ("casa", "ospite") if (d := getattr(richiesta, lato))}
-    if not squadre or not richiesta.gara.strip():
-        raise HTTPException(422, "Servono la gara e almeno una squadra.")
+    sostituzioni = {lato: s for lato, s in richiesta.sostituzioni.items() if lato in ("casa", "ospite") and s}
     allegati = _file_allegati(richiesta.allegati)
+    if richiesta.fasi is None:  # come prima: Liste Gara, più sostituzioni e allegati se ci sono
+        fasi = {"liste"} | ({"sostituzioni"} if sostituzioni else set()) | ({"allegati"} if allegati else set())
+    else:
+        fasi = set(richiesta.fasi)
+        if not fasi or not fasi <= set(FASI):
+            raise HTTPException(422, "Scegli cosa fare: Liste Gara, Sostituzioni o Allegati.")
+    if not richiesta.gara.strip():
+        raise HTTPException(422, "Scrivi la gara da refertare.")
+    if "liste" in fasi and not squadre:
+        raise HTTPException(422, "Servono la gara e almeno una squadra.")
+    if "sostituzioni" in fasi and not sostituzioni:
+        raise HTTPException(422, "Nessuna sostituzione da inserire.")
+    if "allegati" in fasi and not allegati:
+        raise HTTPException(422, "Nessun file da allegare.")
+    # Si manda alla compilazione solo ciò che serve alle fasi scelte.
+    squadre = squadre if "liste" in fasi else {}
+    sostituzioni = sostituzioni if "sostituzioni" in fasi else {}
+    allegati = allegati if "allegati" in fasi else {}
     if not _un_lavoro_alla_volta.acquire(blocking=False):
         raise HTTPException(409, "C'è già una compilazione in corso.")
     id_lavoro = uuid.uuid4().hex
     _lavori[id_lavoro] = lavoro = Lavoro()
-    sostituzioni = {lato: s for lato, s in richiesta.sostituzioni.items() if lato in ("casa", "ospite")}
-    threading.Thread(target=_esegui, args=(lavoro, squadre, richiesta.gara, utente, password, sostituzioni, allegati),
+    threading.Thread(target=_esegui,
+                     args=(lavoro, squadre, richiesta.gara, utente, password, sostituzioni, allegati, fasi),
                      daemon=True).start()
     return {"id": id_lavoro}
 

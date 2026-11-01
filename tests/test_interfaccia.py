@@ -40,7 +40,12 @@ RAPPORTINO = Rapportino(casa=[sost(1, 20, 1, 12), sost(2, 5, 1, 13)],
                         ospite=[sost(2, 3, 9, 10, dubbi=["minuto 3 o 8"])], note_generali=[])
 
 
+# Quali file sono stati mandati alla lettura: si devono leggere solo quelli che servono.
+LETTURE_FATTE: list[str] = []
+
+
 def finto_rapportino(dati: bytes, content_type: str) -> Rapportino:
+    LETTURE_FATTE.append("rapportino")
     if dati == b"rotta":
         raise main.LetturaFallita("rapportino illeggibile")
     return RAPPORTINO.model_copy(deep=True)
@@ -60,6 +65,7 @@ FOTO = {"casa.jpg": _jpeg("white"), "ospite.jpg": _jpeg("lightgray")}
 
 
 def finta_lettura(dati: bytes, content_type: str) -> Distinta:
+    LETTURE_FATTE.append("distinta")
     if dati == b"rotta":
         raise main.LetturaFallita("foto illeggibile")
     chiave = next((nome for nome, contenuto in FOTO.items() if contenuto == dati), None) or dati.decode()
@@ -289,15 +295,15 @@ def test_allegati_dalla_pagina(page):
     carica(page, "casa", "casa.jpg", FOTO["casa.jpg"])
     carica(page, "ospite", "ospite.jpg", FOTO["ospite.jpg"])
     carica(page, "rapportino", "rapportino.jpg", _jpeg("whitesmoke"))
+    assert all(page.locator(f"#fase-{f}").is_checked() for f in ("liste", "sostituzioni", "allegati"))  # di norma tutto
     page.click("#prosegui")
     page.locator("#revisione").wait_for()
-    assert page.locator("#allega").is_checked()                     # di norma si allega
     page.fill("#gara", "tezze brendola")
     domande = []
     page.once("dialog", lambda d: (domande.append(d.message), d.accept()))
     page.click("#avvia")
     page.locator("#esito-finale .ok").wait_for(timeout=120_000)
-    assert "Poi verranno allegati: distinta di casa, distinta ospite, rapportino." in domande[0]
+    assert "• Allegare: distinta di casa, distinta ospite, rapportino." in domande[0]
     assert page.locator("#esiti-allegati .esito").all_inner_texts() == ["Caricato"] * 3
     assert page.locator("#box-allegati").is_visible()
     assert "allegati non caricati" not in page.locator("#esito-finale").inner_text()
@@ -305,18 +311,85 @@ def test_allegati_dalla_pagina(page):
     assert "Allegati: 3 caricati, 0 già presenti, 0 con errori." in page.locator("#passi").inner_text()
 
 
-def test_senza_allega_niente_allegati(page):
+def test_senza_allegati_niente_allegati(page):
     carica(page, "casa", "casa.jpg", FOTO["casa.jpg"])
     carica(page, "ospite", "ospite.jpg", FOTO["ospite.jpg"])
+    page.uncheck("#fase-allegati")
     page.click("#prosegui")
     page.locator("#revisione").wait_for()
-    page.uncheck("#allega")
     page.fill("#gara", "tezze brendola")
     domande = []
     page.once("dialog", lambda d: (domande.append(d.message), d.accept()))
     page.click("#avvia")
     page.locator("#esito-finale .ok").wait_for(timeout=120_000)
-    assert "allegati" not in domande[0]
+    assert "Allegare" not in domande[0] and "• Liste Gara" in domande[0]
     assert portale_finto.ALLEGATI_CARICATI == []
     assert page.locator("#box-allegati").is_hidden()
     assert "Allegati" not in page.locator("#passi").inner_text()
+
+
+def test_prosegui_secondo_le_caselle(page):
+    carica(page, "rapportino", "rapportino.jpg", b"rapportino")
+    assert page.locator("#prosegui").is_disabled()                 # Liste Gara spuntate: servono le distinte
+    assert "servono le due distinte" in page.locator("#stato-caricamento").inner_text()
+    page.uncheck("#fase-liste")
+    assert page.locator("#prosegui").is_enabled()                  # sostituzioni e allegati: basta il rapportino
+    for f in ("sostituzioni", "allegati"):
+        page.uncheck(f"#fase-{f}")
+    assert page.locator("#prosegui").is_disabled()
+    assert "spunta almeno una cosa da fare" in page.locator("#stato-caricamento").inner_text().lower()
+
+
+def test_solo_allegati_senza_leggere_niente(page):
+    LETTURE_FATTE.clear()
+    portale_finto.SALVATAGGI.clear()
+    carica(page, "casa", "casa.jpg", FOTO["casa.jpg"])
+    carica(page, "ospite", "ospite.jpg", FOTO["ospite.jpg"])
+    carica(page, "rapportino", "rapportino.jpg", _jpeg("whitesmoke"))
+    page.uncheck("#fase-liste")
+    page.uncheck("#fase-sostituzioni")
+    page.click("#prosegui")
+    page.locator("#revisione").wait_for()
+    assert LETTURE_FATTE == []                                    # per allegare non si legge niente
+    assert page.locator("#griglia-distinte").is_hidden() and page.locator("#box-sostituzioni").is_hidden()
+    assert page.locator("#riepilogo-fasi li").all_inner_texts() == [
+        "Allegati: distinta di casa, distinta ospite, rapportino; quelli già presenti non vengono ricaricati."]
+    page.fill("#gara", "tezze brendola")
+    domande = []
+    page.once("dialog", lambda d: (domande.append(d.message), d.accept()))
+    page.click("#avvia")
+    page.locator("#esito-finale .ok").wait_for(timeout=120_000)
+    assert "• Allegare:" in domande[0] and "Liste Gara" not in domande[0] and "sostituzioni" not in domande[0]
+    assert page.locator("#esito-finale .ok").inner_text().startswith("Completato.")
+    assert page.locator("#esiti-allegati .esito").all_inner_texts() == ["Caricato"] * 3
+    assert page.locator("#griglia-esiti").is_hidden()
+    passi = page.locator("#passi").inner_text()
+    assert "Svolgimento" not in passi and "Liste Gara" not in passi and "Sostituzioni" not in passi
+    assert portale_finto.SALVATAGGI == []                         # nessun «Salva Tutto»
+
+
+def test_solo_sostituzioni(page):
+    LETTURE_FATTE.clear()
+    portale_finto.SALVATAGGI.clear()
+    carica(page, "rapportino", "rapportino.jpg", b"rapportino")
+    page.uncheck("#fase-liste")
+    page.uncheck("#fase-allegati")
+    page.click("#prosegui")
+    page.locator("#revisione").wait_for()
+    assert LETTURE_FATTE == ["rapportino"]                        # le distinte non servono
+    assert page.locator("#griglia-distinte").is_hidden() and page.locator("#box-sostituzioni").is_visible()
+    page.wait_for_function("document.querySelectorAll('#sost-casa .avvisi li').length > 0")
+    page.fill("#gara", "tezze brendola")
+    domande = []
+    page.once("dialog", lambda d: (domande.append(d.message), d.accept()))
+    page.click("#avvia")
+    page.locator("#esito-finale .ok").wait_for(timeout=120_000)
+    assert "Inserire le sostituzioni (casa 2, ospite 1)" in domande[0] and "Liste Gara" not in domande[0]
+    passi = page.locator("#passi").inner_text()
+    assert "Apertura della gara «tezze brendola» per le Sostituzioni" in passi and "Svolgimento" not in passi
+    assert [s["pagina"] for s in portale_finto.SALVATAGGI] == ["default.asp"]   # un solo salvataggio
+    # Il 20' 1°t esce 1 entra 12 va; il 5' 2°t esce di nuovo l'1: il portale non lo permette.
+    assert page.locator("#esiti-casa .esiti-sost .esito").all_inner_texts() == ["Inserita", "Errore"]
+    assert page.locator("#esiti-ospite .esiti-sost .esito").all_inner_texts() == ["Inserita"]
+    assert "Verifica sul portale: tutte le sostituzioni inserite risultano salvate." in passi
+    assert page.locator("#box-allegati").is_hidden()
