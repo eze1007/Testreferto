@@ -2,7 +2,13 @@
 
 Agente per ridurre il lavoro manuale nella compilazione del referto arbitrale su Sinfonia4You.
 
-Il programma fa quattro cose:
+Il programma fa quattro cose. Nella prima schermata, nel riquadro **«Cosa deve fare il
+programma»**, si sceglie quali fare (di norma tutte): **Liste Gara** (servono le due distinte),
+**Sostituzioni** (serve il rapportino) e **Allegati** (serve almeno un file). Così si può rifare solo
+una parte, per esempio solo gli allegati o solo le sostituzioni, senza ricompilare le liste. Si leggono
+solo i file che servono: per gli allegati nessuno, per le sostituzioni solo il rapportino. Le
+sostituzioni si basano sulle Liste Gara già salvate nel referto.
+
 
 1. **Lettura delle distinte.** Nella pagina web si carica la foto o il PDF della distinta della
    squadra di casa (a sinistra) e di quella ospite (a destra), poi **Prosegui**. Per ogni
@@ -42,8 +48,8 @@ Il programma fa quattro cose:
    (la scheda si chiama «Sostituzioni *»). Per vedere i dati veri apri il referto in una finestra
    anonima, oppure cancella i dati del sito servizi.aia-figc.it. Non premere «Salva» in una finestra
    che mostra le righe vuote: sovrascriveresti le sostituzioni salvate.
-4. **Allegati.** Con la casella «Allega le distinte e il rapportino» (attiva di norma), alla fine
-   della compilazione i file caricati nella prima schermata vengono allegati nella scheda
+4. **Allegati.** Con la casella «Allegati» spuntata, alla fine della compilazione i file caricati
+   nella prima schermata vengono allegati nella scheda
    **Allegati** del referto: le due distinte come «LISTA CALCIATORI» della loro squadra e il
    rapportino come «MODULO AMMONITI/ESPULSI».
    - Il portale accetta pdf, jpg e png fino a 1 MB e consiglia JPEG o PNG: ogni file (foto o PDF)

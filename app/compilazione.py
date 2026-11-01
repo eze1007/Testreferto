@@ -86,11 +86,16 @@ def compila(
     alla_sostituzione: Callable[[str, EsitoSostituzione], None] = lambda lato, esito: None,
     allegati: dict[str, tuple[bytes, str]] | None = None,
     all_allegato: Callable[[EsitoAllegato], None] = lambda esito: None,
+    fasi: set[str] | None = None,
 ) -> Risultato:
     """Login, apertura gara, Svolgimento e Sicurezza, Liste Gara delle squadre, Salva Tutto.
     Con le sostituzioni del rapportino: riapre il referto, scheda Sostituzioni, Salva Tutto.
     Con gli allegati ({"casa"|"ospite"|"rapportino": (file, tipo del file)}): scheda Allegati,
-    distinte come LISTA CALCIATORI della loro squadra e rapportino come MODULO AMMONITI/ESPULSI."""
+    distinte come LISTA CALCIATORI della loro squadra e rapportino come MODULO AMMONITI/ESPULSI.
+
+    `fasi` sceglie cosa fare tra "liste", "sostituzioni" e "allegati" (di norma tutto): per esempio
+    solo gli allegati, senza ricompilare le liste. Le sostituzioni usano le Liste Gara già salvate."""
+    fasi = set(fasi) if fasi is not None else {"liste", "sostituzioni", "allegati"}
     risultato = Risultato()
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless, executable_path=os.environ.get("CHROMIUM_PATH"))
@@ -101,39 +106,42 @@ def compila(
         try:
             avanzamento("Accesso a Sinfonia4You…")
             s4y.login(utente, password, attesa_captcha_s=0 if headless else 180, avviso=avanzamento)
-            avanzamento(f"Ricerca della gara «{gara}»…")
-            s4y.apri_gara(gara)
-            avanzamento("Svolgimento e Sicurezza…")
-            s4y.svolgimento_e_sicurezza()
-            # 1) prima tutti i giocatori nuovi in archivio, 2) poi le scelte, 3) infine il controllo:
-            # così una ricarica della pagina dopo "Aggiungi persona" non cancella scelte già fatte.
-            avanzamento("Controllo dei dati già presenti nel referto…")
-            liberate = {lato: s4y.libera_righe_sbagliate(d.giocatori, lato) for lato, d in squadre.items()}
-            aggiunti = {}
-            for lato, distinta in squadre.items():
-                avanzamento(f"Giocatori nuovi in archivio, {NOMI_LATO[lato]}…")
-                aggiunti[lato] = s4y.aggiungi_mancanti(distinta.giocatori, lato)
-            for lato, distinta in squadre.items():
-                avanzamento(f"Liste Gara, {NOMI_LATO[lato]}…")
-                risultato.report[lato] = s4y.compila_lista(
-                    distinta.giocatori, lato, al_giocatore=lambda e, lato=lato: al_giocatore(lato, e),
-                    aggiunti=aggiunti[lato])
-            avanzamento("Controllo finale delle Liste Gara…")
-            for lato, distinta in squadre.items():
-                if liberate[lato]:
-                    risultato.report[lato].avvisi.append(
-                        f"{liberate[lato]} righe contenevano dati diversi (es. da una prova precedente) e sono state corrette.")
-                if riparate := s4y.verifica_e_ripara(distinta.giocatori, lato):
-                    risultato.report[lato].avvisi.append(f"{riparate} righe ripristinate nel controllo finale.")
-            if s4y.messaggi_portale:
-                avanzamento("Messaggi del portale: " + " | ".join(dict.fromkeys(s4y.messaggi_portale)))
-            avanzamento("Salvataggio (Salva Tutto)…")
-            risultato.bottone_salvataggio = s4y.salva()
-            avanzamento("Referto salvato." if s4y.salvataggi else NESSUN_SALVATAGGIO)
-            da_inserire = {lato: elenco for lato, elenco in (sostituzioni or {}).items() if elenco}
+            if "liste" in fasi:
+                avanzamento(f"Ricerca della gara «{gara}»…")
+                s4y.apri_gara(gara)
+                avanzamento("Svolgimento e Sicurezza…")
+                s4y.svolgimento_e_sicurezza()
+                # 1) prima tutti i giocatori nuovi in archivio, 2) poi le scelte, 3) infine il controllo:
+                # così una ricarica della pagina dopo "Aggiungi persona" non cancella scelte già fatte.
+                avanzamento("Controllo dei dati già presenti nel referto…")
+                liberate = {lato: s4y.libera_righe_sbagliate(d.giocatori, lato) for lato, d in squadre.items()}
+                aggiunti = {}
+                for lato, distinta in squadre.items():
+                    avanzamento(f"Giocatori nuovi in archivio, {NOMI_LATO[lato]}…")
+                    aggiunti[lato] = s4y.aggiungi_mancanti(distinta.giocatori, lato)
+                for lato, distinta in squadre.items():
+                    avanzamento(f"Liste Gara, {NOMI_LATO[lato]}…")
+                    risultato.report[lato] = s4y.compila_lista(
+                        distinta.giocatori, lato, al_giocatore=lambda e, lato=lato: al_giocatore(lato, e),
+                        aggiunti=aggiunti[lato])
+                avanzamento("Controllo finale delle Liste Gara…")
+                for lato, distinta in squadre.items():
+                    if liberate[lato]:
+                        risultato.report[lato].avvisi.append(
+                            f"{liberate[lato]} righe contenevano dati diversi (es. da una prova precedente) e sono state corrette.")
+                    if riparate := s4y.verifica_e_ripara(distinta.giocatori, lato):
+                        risultato.report[lato].avvisi.append(f"{riparate} righe ripristinate nel controllo finale.")
+                if s4y.messaggi_portale:
+                    avanzamento("Messaggi del portale: " + " | ".join(dict.fromkeys(s4y.messaggi_portale)))
+                avanzamento("Salvataggio (Salva Tutto)…")
+                risultato.bottone_salvataggio = s4y.salva()
+                avanzamento("Referto salvato." if s4y.salvataggi else NESSUN_SALVATAGGIO)
+            da_inserire = ({lato: elenco for lato, elenco in (sostituzioni or {}).items() if elenco}
+                           if "sostituzioni" in fasi else {})
             if da_inserire:
-                # Le tendine delle sostituzioni si basano sulle Liste Gara salvate: si riapre il referto.
-                avanzamento("Riapertura del referto per le Sostituzioni…")
+                # Le tendine delle sostituzioni si basano sulle Liste Gara salvate: si (ri)apre il referto.
+                avanzamento("Riapertura del referto per le Sostituzioni…" if "liste" in fasi
+                            else f"Apertura della gara «{gara}» per le Sostituzioni…")
                 s4y.apri_gara(gara)
                 for lato, elenco in da_inserire.items():
                     avanzamento(f"Sostituzioni, {NOMI_LATO[lato]}…")
@@ -148,12 +156,13 @@ def compila(
                 avanzamento("Salvataggio delle Sostituzioni (Salva Tutto)…")
                 risultato.bottone_salvataggio = s4y.salva()
                 avanzamento("Sostituzioni salvate." if s4y.salvataggi else NESSUN_SALVATAGGIO)
-            if allegati:
+            if allegati and "allegati" in fasi:
                 # Il caricamento degli allegati salva subito sul portale, senza «Salva». Un problema
                 # qui non deve far risultare fallito il resto, già salvato.
                 avanzamento("Allegati: distinte e rapportino di fine gara…")
                 try:
-                    if not s4y.ha_scheda("tabs-Allegati"):
+                    if not s4y.ha_scheda("tabs-Allegati"):  # referto non ancora aperto (solo allegati)
+                        avanzamento(f"Apertura della gara «{gara}»…")
                         s4y.apri_gara(gara)
                     da_caricare, preparazione = prepara_allegati(allegati)
                     for esito in preparazione:
