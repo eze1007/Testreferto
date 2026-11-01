@@ -107,6 +107,12 @@
   @media (prefers-color-scheme: dark) { .esito.inserita { background:#14361f; color:#86efac; } }
   .esiti h3 { font-size:14px; margin:14px 0 4px; color:var(--muted); }
   .nota-verifica { font-size:13px; color:var(--muted); margin:8px 0 0; }
+  .compila .opzione { flex:1 1 100%; display:flex; align-items:center; gap:8px; font-size:14px; color:var(--text); }
+  .compila .opzione input { display:inline-block; width:auto; margin:0; }
+  .esito.caricato { background:#dcfce7; color:#14532d; } .esito.gia_presente { background:#dbeafe; color:#1e3a8a; }
+  @media (prefers-color-scheme: dark) {
+    .esito.caricato { background:#14361f; color:#86efac; } .esito.gia_presente { background:#172a4d; color:#93c5fd; }
+  }
 
   /* Telefono: il nome va sotto il cognome, così entrambi hanno tutta la larghezza */
   @media (max-width: 760px) {
@@ -191,8 +197,12 @@
         <input type="text" id="gara" placeholder="es. Tezze, oppure Tezze vs Brendola" autocomplete="off">
       </label>
       <button class="primario" id="avvia">Compila Sinfonia4You</button>
+      <label class="opzione"><input type="checkbox" id="allega" checked>
+        Allega le distinte e il rapportino nella scheda Allegati</label>
       <p class="nota">Compila Svolgimento, Sicurezza e Liste Gara delle due squadre e preme «Salva Tutto».
         Se hai caricato il rapportino, poi riapre il referto, compila le Sostituzioni e salva di nuovo.
+        Gli allegati vengono caricati come «Lista calciatori» della loro squadra e il rapportino come
+        «Modulo ammoniti/espulsi»; quelli già presenti non vengono ricaricati.
         «Invia al G.S.» non viene mai premuto.</p>
     </div>
     <div class="azioni">
@@ -207,6 +217,9 @@
     <div class="griglia" style="margin-top:16px">
       <div class="card casa"><h2>Squadra di casa</h2><div id="esiti-casa" class="esiti"></div></div>
       <div class="card ospite"><h2>Squadra ospite</h2><div id="esiti-ospite" class="esiti"></div></div>
+    </div>
+    <div class="card" id="box-allegati" style="margin-top:16px" hidden>
+      <h2>Allegati</h2><div id="esiti-allegati" class="esiti"></div>
     </div>
     <div class="card screenshot" id="box-screenshot" style="margin-top:16px" hidden>
       <h2>Pagina finale</h2><img id="screenshot" alt="Screenshot di Sinfonia4You dopo la compilazione">
@@ -439,7 +452,17 @@ $("#scarica").addEventListener("click", () => {
 // --- Schermata 3 -------------------------------------------------------------------------
 
 const ETICHETTE = { selezionato: "Selezionato", aggiunto: "Nuovo", da_verificare: "Da verificare", errore: "Errore",
-                    inserita: "Inserita" };
+                    inserita: "Inserita", caricato: "Caricato", gia_presente: "Già presente" };
+
+const NOMI_ALLEGATI = { casa: "distinta di casa", ospite: "distinta ospite", rapportino: "rapportino" };
+
+// Il file come base64 (senza il prefisso "data:...;base64,").
+const base64 = (f) => new Promise((ok, ko) => {
+  const r = new FileReader();
+  r.onload = () => ok(String(r.result).split(",")[1] || "");
+  r.onerror = () => ko(r.error || new Error("lettura non riuscita"));
+  r.readAsDataURL(f);
+});
 
 $("#avvia").addEventListener("click", async () => {
   const gara = $("#gara").value.trim(), squadre = squadreLette();
@@ -458,10 +481,20 @@ $("#avvia").addEventListener("click", async () => {
   const anomalie = anomalieSostituzioni();
   if (sost) avviso += `\nPoi verranno inserite le sostituzioni (casa ${sost.casa.length}, ospite ${sost.ospite.length})` +
                       (anomalie ? `: ATTENZIONE, ${anomalie} da controllare.` : ".");
+  const daAllegare = $("#allega").checked ? ["casa", "ospite", "rapportino"].filter((k) => file[k]) : [];
+  if (daAllegare.length) avviso += `\nPoi verranno allegati: ${daAllegare.map((k) => NOMI_ALLEGATI[k]).join(", ")}.`;
   if (!confirm(`Compilare Sinfonia4You per la gara «${gara}» e premere «Salva Tutto»?${avviso}`)) return;
 
   const richiesta = { gara, ...squadre };
   if (sost) richiesta.sostituzioni = { casa: sost.casa, ospite: sost.ospite };
+  if (daAllegare.length) {
+    richiesta.allegati = {};
+    try {
+      for (const k of daAllegare) {
+        richiesta.allegati[k] = { nome: file[k].name, tipo: file[k].type, dati: await base64(file[k]) };
+      }
+    } catch (e) { alert("Impossibile leggere i file da allegare: " + e.message); return; }
+  }
   const r = await fetch("/api/compila", { method: "POST", headers: { "Content-Type": "application/json" },
                                           body: JSON.stringify(richiesta) });
   const body = await r.json().catch(() => ({}));
@@ -471,6 +504,7 @@ $("#avvia").addEventListener("click", async () => {
   $("#compilazione").hidden = false;
   $("#torna").disabled = true;
   $("#box-screenshot").hidden = true;
+  $("#box-allegati").hidden = true;
   $("#esito-finale").innerHTML = "";
   scrollTo(0, 0);
   segui(body.id);
@@ -490,10 +524,12 @@ async function segui(id) {
   $("#passi").innerHTML = s.messaggi.map((m) => `<li>${esc(m)}</li>`).join("");
   if (s.stato === "in_corso") $("#passi").lastElementChild?.classList.add("attivo");
   for (const l of LATI) mostraEsiti(l, s.esiti[l], (s.avvisi || {})[l] || [], (s.sostituzioni || {})[l] || []);
+  mostraAllegati(s.allegati || []);
   if (s.stato === "in_corso") { setTimeout(() => segui(id), 1000); return; }
 
   const problemi = LATI.flatMap((l) => s.esiti[l]).filter((e) => e.stato === "da_verificare" || e.stato === "errore").length;
   const sostNo = LATI.flatMap((l) => (s.sostituzioni || {})[l] || []).filter((e) => e.stato === "errore").length;
+  const allegatiNo = (s.allegati || []).filter((e) => e.stato === "errore").length;
   const verificate = Array.isArray(s.verifica) && !s.verifica.length;
   const verifica = !Array.isArray(s.verifica) ? "" : s.verifica.length
     ? `<div class="errore" style="margin-top:8px"><strong>Le sostituzioni non risultano tutte salvate sul portale:</strong>
@@ -504,13 +540,21 @@ async function segui(id) {
   $("#esito-finale").innerHTML = s.stato === "completato"
     ? `<div class="ok">Referto salvato con «${esc(s.bottone)}».${problemi ? ` ${problemi} giocatori da sistemare a mano.` : ""}` +
       `${sostNo ? ` ${sostNo} sostituzioni non inserite: sistemale a mano.` : ""}` +
-      `${verificate ? " Sostituzioni verificate sul portale." : ""}</div>${verifica}`
+      `${verificate ? " Sostituzioni verificate sul portale." : ""}` +
+      `${allegatiNo ? ` ${allegatiNo} allegati non caricati: vedi il riquadro Allegati.` : ""}</div>${verifica}`
     : `<div class="errore">Compilazione interrotta: ${esc(s.errore)}<br>Controlla lo screenshot qui sotto.</div>`;
   if (s.screenshot) {
     $("#screenshot").src = `/api/compila/${id}/screenshot?t=${Date.now()}`;
     $("#box-screenshot").hidden = false;
   }
   $("#torna").disabled = false;
+}
+
+function mostraAllegati(allegati) {
+  $("#box-allegati").hidden = !allegati.length;
+  $("#esiti-allegati").innerHTML = `<table>${allegati.map((e) => `<tr>
+      <td>${esc(e.descrizione)}${e.dettaglio ? `<div class="dettaglio">${esc(e.dettaglio)}</div>` : ""}</td>
+      <td style="text-align:right"><span class="esito ${e.stato}">${ETICHETTE[e.stato] || esc(e.stato)}</span></td></tr>`).join("")}</table>`;
 }
 
 function mostraEsiti(lato, esiti, avvisi, sostituzioni = []) {

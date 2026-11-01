@@ -67,3 +67,54 @@ def test_sostituzioni_perse_dal_portale_vengono_segnalate(esegui, monkeypatch):
         "squadra ospite: sul portale non risultano salvate 3' del 2° t. esce 9 entra 10.",
     ]
     assert any(p.startswith("ATTENZIONE: squadra di casa: sul portale non risultano salvate") for p in passi)
+
+
+# --- allegati ------------------------------------------------------------------------------------
+
+def _file(formato: str) -> bytes:
+    import io
+
+    from PIL import Image
+    out = io.BytesIO()
+    Image.new("RGB", (1240, 1754), "white").save(out, format=formato)
+    return out.getvalue()
+
+
+def test_procedura_completa_con_allegati(esegui, monkeypatch):
+    file = {"casa": (_file("JPEG"), "image/jpeg"), "ospite": (_file("PNG"), "image/png"),
+            "rapportino": (_file("PDF"), "application/pdf")}
+    passi, esiti = [], []
+    if CHROMIUM:
+        monkeypatch.setenv("CHROMIUM_PATH", CHROMIUM)
+    r = compila(SQUADRE, "tezze brendola", "arbitro123", "segreta", avanzamento=passi.append,
+                prepara_pagina=portale_finto.installa, allegati=file, all_allegato=esiti.append,
+                sostituzioni={lato: [s.model_copy() for s in elenco] for lato, elenco in SOSTITUZIONI.items()})
+    assert r.errore is None
+    assert [(e.descrizione, e.stato) for e in r.allegati] == [
+        ("Distinta squadra di casa", "caricato"), ("Distinta squadra ospite", "caricato"),
+        ("Rapportino di fine gara", "caricato")]
+    assert [e.stato for e in esiti] == ["caricato"] * 3          # anche durante, per la pagina
+    assert [(a["tipo"], a["squadra"], a["mime"]) for a in portale_finto.ALLEGATI_CARICATI] == [
+        ("1", "1001", "image/jpeg"), ("1", "2001", "image/jpeg"), ("3", "0", "image/jpeg")]
+    assert "Allegati: 3 caricati, 0 già presenti, 0 con errori." in passi
+    # Dopo gli allegati la verifica delle sostituzioni c'è ancora.
+    assert r.verifica == [] and "Verifica sul portale: tutte le sostituzioni inserite risultano salvate." in passi
+    assert passi.index("Allegati: 3 caricati, 0 già presenti, 0 con errori.") < passi.index(
+        "Verifica: riapro il referto come è salvato sul portale…")
+
+
+def test_allegati_senza_sostituzioni_e_file_non_valido(monkeypatch):
+    if CHROMIUM:
+        monkeypatch.setenv("CHROMIUM_PATH", CHROMIUM)
+    passi = []
+    r = compila(SQUADRE, "tezze brendola", "arbitro123", "segreta", avanzamento=passi.append,
+                prepara_pagina=portale_finto.installa,
+                allegati={"casa": (_file("JPEG"), "image/jpeg"), "rapportino": (b"non leggibile", "image/jpeg")})
+    assert r.errore is None
+    stati = {e.descrizione: (e.stato, e.dettaglio) for e in r.allegati}
+    assert stati["Distinta squadra di casa"] == ("caricato", "Allegato caricato correttamente.")
+    assert stati["Rapportino di fine gara"][0] == "errore"
+    assert "immagine o un PDF leggibile" in stati["Rapportino di fine gara"][1]
+    assert "Distinta squadra ospite" not in stati           # non caricata nella pagina: niente da allegare
+    assert [(a["tipo"], a["squadra"]) for a in portale_finto.ALLEGATI_CARICATI] == [("1", "1001")]
+    assert r.verifica is None                                 # nessuna sostituzione, nessuna verifica

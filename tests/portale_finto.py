@@ -38,6 +38,10 @@ SALVATAGGI: list[dict] = []
 SALVATE_INIZIALI = {"casa": [["1", "3", "2", "12"]], "ospite": []}
 SOSTITUZIONI_SALVATE: dict[str, list] = {}
 PERDI_SALVATAGGI = False
+# Allegati caricati sul server: {"id", "tipo", "squadra", "nome", "mime", "byte"}. Con
+# FALLISCI_ALLEGATI il server risponde con Error 1.
+ALLEGATI_CARICATI: list[dict] = []
+FALLISCI_ALLEGATI = False
 
 _SALVA_SUL_SERVER = """<script>
 function salvaSulServer() {
@@ -59,11 +63,18 @@ def _barra(successivo: str) -> str:
 
 
 def _schede(attiva: str) -> str:
-    nomi = ["Svolgimento", "Sicurezza", "Liste Gara", "Durata", "Reti", "Disciplina", "Sostituzioni", "Note"]
-    # Come nel portale: ogni scheda è un link "#tabs-..."; qui funziona solo quella delle Sostituzioni.
+    nomi = ["Svolgimento", "Sicurezza", "Liste Gara", "Durata", "Reti", "Disciplina", "Sostituzioni", "Note", "Allegati"]
+    # Come nel portale: ogni scheda è un link "#tabs-..."; qui funzionano Sostituzioni e Allegati.
     return '<div class="tabs">' + "".join(
         f'<a href="#tabs-{n.replace(" ", "")}" class="{"on" if n == attiva else ""}" '
-        f'onclick="return mostraScheda(this)">{n}</a>' for n in nomi) + "</div>"
+        f'onclick="return mostraScheda(this)">{n}</a>' for n in nomi) + """</div>
+<script>
+function mostraScheda(a) {
+  const scheda = document.getElementById(a.getAttribute('href').slice(1));
+  if (scheda) scheda.style.display = 'block';
+  return false;
+}
+</script>"""
 
 
 # Scheda Sostituzioni: le tendine ESCE/ENTRA dipendono dalle Liste Gara salvate (qui fisse) e dalle
@@ -85,15 +96,10 @@ def _tabella_sostituzioni(lato: str, corpo: str) -> str:
 
 
 SOSTITUZIONI = f"""<div id="tabs-Sostituzioni" style="display:none" class="box">
-<h2>CALCIO TEZZE</h2>{_tabella_sostituzioni('casa', 'casa')}
-<h2>BRENDOLA</h2>{_tabella_sostituzioni('ospite', 'fuori')}</div>
+<h2 id="Squadra_Sostituzioni_Casa">CALCIO TEZZE</h2>{_tabella_sostituzioni('casa', 'casa')}
+<h2 id="Squadra_Sostituzioni_Fuori">BRENDOLA</h2>{_tabella_sostituzioni('ospite', 'fuori')}</div>
 <script>
 const TITOLARI = {TITOLARI_SOST}, RISERVE = {RISERVE_SOST}, CORPO = {{casa: 'casa', ospite: 'fuori'}};
-function mostraScheda(a) {{
-  const scheda = document.getElementById(a.getAttribute('href').slice(1));
-  if (scheda) scheda.style.display = 'block';
-  return false;
-}}
 const opzione = (lato, n, rientro) => `<option value="${{lato === 'casa' ? 1000 + n : 2000 + n}}" data-numero="${{n}}">` +
   `${{rientro ? '* ' : ''}}${{n}} - GIOCATORE ${{n}}</option>`;
 function aggiorna(lato) {{
@@ -146,6 +152,88 @@ for (const lato of ['casa', 'ospite']) {{
 </script>"""
 
 
+# Scheda Allegati, come nel portale: «Aggiungi Allegato» aggiunge una riga con tipo, squadra (solo
+# per i tipi 1 e 2), note, file e «ALLEGA»; il file (pdf, jpg, png fino a 1 MB) va subito a
+# upload.asp, che risponde con un JSON: Error 0 = caricato. Nella tendina le squadre sono in ordine
+# inverso e scritte diversamente dalle intestazioni: vanno riconosciute dal nome.
+SQUADRE_ALLEGATI = [("2001", "BRENDOLA CALCIO"), ("1001", "TEZZE")]
+_RIGA_ALLEGATO = ("""<tr><td><button class="delallegato">x</button></td>
+  <td><select name="tipo" class="tipo_allegato"><option value="0"></option><option value="1">LISTA CALCIATORI</option>
+    <option value="2">RISERVA PRESENTATA DALLA SOCIETA'</option><option value="3">MODULO AMMONITI/ESPULSI</option>
+    <option value="4">ALTRO (SPECIFICARE)</option></select></td>
+  <td><select name="squadra" class="squadra_allegato" disabled><option value="0"></option>"""
+                  + "".join(f'<option value="{v}">{n}</option>' for v, n in SQUADRE_ALLEGATI) + """</select></td>
+  <td><textarea class="note_allegato" maxlength="500"></textarea></td>
+  <td><input type="file" class="file_allegato"> <button class="carica_allegato">ALLEGA</button></td></tr>""")
+
+ALLEGATI = f"""<div id="tabs-Allegati" style="display:none" class="box">
+<div id="allegati_save"></div>
+<table id="Table_Allegati_Referto"><tbody id="riepilogo_allegati_referto"></tbody>
+<tfoot><tr><td><button id="btn_addallegato">Aggiungi Allegato</button></td></tr></tfoot></table>
+<template id="riga_allegato">{_RIGA_ALLEGATO}</template></div>
+<script>
+(() => {{
+  const corpo = document.getElementById('riepilogo_allegati_referto');
+  const nuovaRiga = () => {{ corpo.append(document.getElementById('riga_allegato').content.cloneNode(true)); return corpo.lastElementChild; }};
+  const caricato = (tr, id, nome) => {{
+    tr.querySelector('.delallegato').dataset.allegato = id;
+    tr.querySelector('.carica_allegato').remove();
+    const b = document.createElement('button'); b.className = 'download_allegato'; b.textContent = nome;
+    tr.querySelector('.file_allegato').replaceWith(b);
+    tr.querySelectorAll('select, textarea').forEach((x) => x.disabled = true);
+  }};
+  // Allegati già sul server (li scrive il server finto al posto di __ALLEGATI__). Con "solo_testo"
+  // la riga mostra tipo e squadra come testo, senza tendine.
+  const SQUADRE = {json.dumps(dict(SQUADRE_ALLEGATI))};
+  for (const a of __ALLEGATI__) {{
+    if (a.solo_testo) {{
+      corpo.insertAdjacentHTML('beforeend', `<tr><td>${{a.tipo === '1' ? 'LISTA CALCIATORI' : 'MODULO AMMONITI/ESPULSI'}}</td>` +
+        `<td>${{SQUADRE[a.squadra] || ''}}</td><td><button class="download_allegato">${{a.nome}}</button></td></tr>`);
+      continue;
+    }}
+    const tr = nuovaRiga();
+    tr.querySelector('[name=tipo]').value = a.tipo; tr.querySelector('[name=squadra]').value = a.squadra;
+    caricato(tr, a.id, a.nome);
+  }}
+  document.getElementById('btn_addallegato').addEventListener('click', () => nuovaRiga());
+  corpo.addEventListener('change', (e) => {{
+    const tr = e.target.closest('tr');
+    if (e.target.name === 'tipo') {{
+      const sq = tr.querySelector('[name=squadra]'), t = e.target.value;
+      sq.disabled = !(t === '1' || t === '2');
+      if (sq.disabled) sq.value = '0';
+    }}
+    if (e.target.classList.contains('file_allegato')) {{
+      const f = e.target.files[0];
+      if (f && (!/\\.(pdf|jpe?g|png)$/i.test(f.name) || f.size > 1048576)) {{
+        alert('ATTENZIONE: sono ammessi solo file pdf, jpg, png fino a 1 MB.');
+        e.target.value = '';
+      }}
+    }}
+  }});
+  corpo.addEventListener('click', async (e) => {{
+    const tr = e.target.closest('tr');
+    if (e.target.closest('.delallegato')) {{ if (tr.querySelector('.file_allegato')) tr.remove(); return; }}
+    if (!e.target.closest('.carica_allegato')) return;
+    const tipo = tr.querySelector('[name=tipo]').value, squadra = tr.querySelector('[name=squadra]').value;
+    const file = tr.querySelector('.file_allegato').files[0];
+    if (tipo === '0') return alert('Selezionare il tipo di allegato.');
+    if ((tipo === '1' || tipo === '2') && squadra === '0') return alert('Selezionare la squadra.');
+    if (!file) return alert('Selezionare il file da allegare.');
+    const dati = new FormData();
+    for (const [k, v] of [['action', 'S'], ['operation', '44'], ['id_referto', '999'], ['aTipo', tipo],
+                          ['aSquadra', squadra], ['aNote', tr.querySelector('.note_allegato').value]]) dati.append(k, v);
+    dati.append('aFile', file);
+    const r = await fetch('upload.asp', {{method: 'POST', body: dati}});
+    const esito = JSON.parse(await r.text());
+    document.getElementById('allegati_save').textContent = esito.Message;
+    if (parseInt(esito.Error) === 0) caricato(tr, esito.ID, esito.Allegato);
+    else {{ tr.querySelector('[name=tipo]').value = '0'; tr.querySelector('[name=squadra]').value = '0'; }}
+  }});
+}})();
+</script>"""
+
+
 _SVUOTA = ("onfocus=\"if(this.value==this.defaultValue){this.value='';}\" "
            "onblur=\"if(this.value==''){this.value=this.defaultValue;}\"")
 
@@ -187,6 +275,7 @@ GARE = f"""<div class="box"><div class="titolo">Gestione Referti</div>
 SVOLGIMENTO = f"""{_schede('Svolgimento')}<div class="box"><div class="titolo">Svolgimento della Gara</div>
 {_scegli('Disputata Regolarmente')}{_scegli('Disputata Con Sospensioni')}{_scegli('Sospesa')}</div>
 {SOSTITUZIONI}
+{ALLEGATI}
 <script>let salvato = false, salvatoScheda = false, inviato = false;</script>
 {_barra('sicurezza.asp')}"""
 
@@ -226,6 +315,8 @@ def _colonna(lato: str) -> str:
 LISTE = f"""{_schede('Liste Gara')}<table style="width:100%"><tr>
 <td class="box" style="width:50%;vertical-align:top">{_colonna('casa')}</td>
 <td class="box" style="width:50%;vertical-align:top">{_colonna('ospite')}</td></tr></table>
+{SOSTITUZIONI}
+{ALLEGATI}
 {_barra('durata.asp')}
 <div id="dlg" style="display:none;position:fixed;top:150px;left:300px;background:#fff">
   <div class="titolo" style="margin:0 0 8px;background:#f5a623">Aggiungi Tesserato</div>
@@ -265,9 +356,26 @@ PAGINE = {
 }
 
 
-def installa(page: Page, captcha: bool = False) -> None:
+def _campi_multipart(request) -> dict:
+    """Campi di una richiesta multipart/form-data (come quella di upload.asp)."""
+    from email.parser import BytesParser
+    from email.policy import default
+
+    intestazione = b"Content-Type: " + request.headers.get("content-type", "").encode() + b"\r\n\r\n"
+    messaggio = BytesParser(policy=default).parsebytes(intestazione + (request.post_data_buffer or b""))
+    campi = {}
+    for parte in messaggio.iter_parts():
+        nome = parte.get_param("name", header="content-disposition")
+        dati = parte.get_payload(decode=True) or b""
+        campi[nome] = ({"nome": parte.get_filename(), "mime": parte.get_content_type(), "dati": dati}
+                       if parte.get_filename() is not None else dati.decode())
+    return campi
+
+
+def installa(page: Page, captcha: bool = False, allegati_presenti: list[dict] = ()) -> None:
     SOSTITUZIONI_SALVATE.clear()
     SOSTITUZIONI_SALVATE.update(json.loads(json.dumps(SALVATE_INIZIALI)))
+    ALLEGATI_CARICATI[:] = [dict(a) for a in allegati_presenti]
 
     def gestisci(route: Route) -> None:
         percorso = route.request.url.removeprefix(BASE)
@@ -277,6 +385,16 @@ def installa(page: Page, captcha: bool = False) -> None:
             if dati.get("pagina") == "default.asp" and not PERDI_SALVATAGGI:  # la pagina con le Sostituzioni
                 SOSTITUZIONI_SALVATE.update(casa=dati["casa"], ospite=dati["ospite"])
             return route.fulfill(body="OK", content_type="text/plain")
+        if percorso.endswith("upload.asp") and route.request.method == "POST":
+            campi = _campi_multipart(route.request)
+            if FALLISCI_ALLEGATI:
+                esito = {"Error": 1, "Message": "Errore nel caricamento dell'allegato."}
+            else:
+                nuovo = {"id": 500 + len(ALLEGATI_CARICATI), "tipo": campi["aTipo"], "squadra": campi["aSquadra"],
+                         "nome": campi["aFile"]["nome"], "mime": campi["aFile"]["mime"], "byte": len(campi["aFile"]["dati"])}
+                ALLEGATI_CARICATI.append(nuovo)
+                esito = {"Error": 0, "Message": "Allegato caricato correttamente.", "ID": nuovo["id"], "Allegato": nuovo["nome"]}
+            return route.fulfill(body=json.dumps(esito), content_type="text/html")
         if captcha and percorso == "":
             campo = '<input type="text" name="captcha" class="validate[required,custom[S4YCaptcha]]">'
             return route.fulfill(body=f"<html><body>{LOGIN.replace('</form>', campo + '</form>')}</body></html>",
@@ -288,6 +406,7 @@ def installa(page: Page, captcha: bool = False) -> None:
         if corpo is None:
             return route.fulfill(status=404, body="non trovata")
         corpo = corpo.replace("__SALVATE__", json.dumps(SOSTITUZIONI_SALVATE))
+        corpo = corpo.replace("__ALLEGATI__", json.dumps(ALLEGATI_CARICATI))
         html = f"""<html><head><meta charset="utf-8">{STILE}</head><body><div class="pagina">
           <div class="testata">ASSOCIAZIONE ITALIANA ARBITRI — Sinfonia4You (COPIA DI PROVA)</div>{corpo}</div></body></html>"""
         route.fulfill(body=html, content_type="text/html")
