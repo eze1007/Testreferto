@@ -7,6 +7,7 @@ from pathlib import Path
 
 from playwright.sync_api import Page, sync_playwright
 
+from .allegati import ALLEGATI_REFERTO, Allegato, AllegatoNonValido, EsitoAllegato, prepara_allegato
 from .schema import Distinta, Sostituzione
 from .sinfonia import Esito, EsitoSostituzione, Report, Sinfonia
 
@@ -18,12 +19,29 @@ NOMI_LATO = {"casa": "squadra di casa", "ospite": "squadra ospite"}
 class Risultato:
     report: dict[str, Report] = field(default_factory=dict)
     sostituzioni: dict[str, list[EsitoSostituzione]] = field(default_factory=dict)
+    allegati: list[EsitoAllegato] = field(default_factory=list)
     # Controllo dopo il salvataggio delle sostituzioni: None = non fatto, [] = tutto salvato,
     # altrimenti i problemi trovati (sostituzioni che sul portale non risultano).
     verifica: list[str] | None = None
     bottone_salvataggio: str | None = None
     screenshot: bytes | None = None  # pagina finale, oppure il punto in cui si è fermato
     errore: str | None = None
+
+
+def prepara_allegati(file: dict[str, tuple[bytes, str]]) -> tuple[list[Allegato], list[EsitoAllegato]]:
+    """Trasforma i file caricati nella pagina in JPEG sotto 1 MB, nell'ordine distinta di casa,
+    distinta ospite, rapportino. Restituisce (da caricare, errori di preparazione)."""
+    da_caricare, errori = [], []
+    for chiave, descrizione, tipo, squadra, nome_file in ALLEGATI_REFERTO:
+        if chiave not in file:
+            continue
+        dati, content_type = file[chiave]
+        try:
+            da_caricare.append(Allegato(chiave, descrizione, tipo, squadra, nome_file,
+                                        prepara_allegato(dati, content_type)))
+        except AllegatoNonValido as e:
+            errori.append(EsitoAllegato(descrizione, "errore", str(e)))
+    return da_caricare, errori
 
 
 def _descrivi(t: tuple[int, int, int, int]) -> str:
@@ -66,9 +84,13 @@ def compila(
     alla_fine: Callable[[Page], None] | None = None,
     sostituzioni: dict[str, list[Sostituzione]] | None = None,
     alla_sostituzione: Callable[[str, EsitoSostituzione], None] = lambda lato, esito: None,
+    allegati: dict[str, tuple[bytes, str]] | None = None,
+    all_allegato: Callable[[EsitoAllegato], None] = lambda esito: None,
 ) -> Risultato:
     """Login, apertura gara, Svolgimento e Sicurezza, Liste Gara delle squadre, Salva Tutto.
-    Con le sostituzioni del rapportino: riapre il referto, scheda Sostituzioni, Salva Tutto."""
+    Con le sostituzioni del rapportino: riapre il referto, scheda Sostituzioni, Salva Tutto.
+    Con gli allegati ({"casa"|"ospite"|"rapportino": (file, tipo del file)}): scheda Allegati,
+    distinte come LISTA CALCIATORI della loro squadra e rapportino come MODULO AMMONITI/ESPULSI."""
     risultato = Risultato()
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless, executable_path=os.environ.get("CHROMIUM_PATH"))
@@ -126,6 +148,30 @@ def compila(
                 avanzamento("Salvataggio delle Sostituzioni (Salva Tutto)…")
                 risultato.bottone_salvataggio = s4y.salva()
                 avanzamento("Sostituzioni salvate." if s4y.salvataggi else NESSUN_SALVATAGGIO)
+            if allegati:
+                # Il caricamento degli allegati salva subito sul portale, senza «Salva». Un problema
+                # qui non deve far risultare fallito il resto, già salvato.
+                avanzamento("Allegati: distinte e rapportino di fine gara…")
+                try:
+                    if not s4y.ha_scheda("tabs-Allegati"):
+                        s4y.apri_gara(gara)
+                    da_caricare, preparazione = prepara_allegati(allegati)
+                    for esito in preparazione:
+                        risultato.allegati.append(esito)
+                        all_allegato(esito)
+                    for esito in s4y.carica_allegati(da_caricare, al_allegato=all_allegato):
+                        risultato.allegati.append(esito)
+                except Exception as e:
+                    esito = EsitoAllegato("Scheda Allegati", "errore",
+                                          str(e).splitlines()[0] if str(e) else type(e).__name__)
+                    risultato.allegati.append(esito)
+                    all_allegato(esito)
+                    s4y.istantanea("allegati-errore")
+                caricati = sum(e.stato == "caricato" for e in risultato.allegati)
+                gia = sum(e.stato == "gia_presente" for e in risultato.allegati)
+                errori = sum(e.stato == "errore" for e in risultato.allegati)
+                avanzamento(f"Allegati: {caricati} caricati, {gia} già presenti, {errori} con errori.")
+            if da_inserire:
                 avanzamento("Verifica: riapro il referto come è salvato sul portale…")
                 risultato.verifica = verifica_sostituzioni(s4y, gara, risultato.sostituzioni)
                 for problema in risultato.verifica:

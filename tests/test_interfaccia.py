@@ -46,10 +46,24 @@ def finto_rapportino(dati: bytes, content_type: str) -> Rapportino:
     return RAPPORTINO.model_copy(deep=True)
 
 
+def _jpeg(colore: str) -> bytes:
+    import io
+
+    from PIL import Image
+    out = io.BytesIO()
+    Image.new("RGB", (900, 1200), colore).save(out, format="JPEG")
+    return out.getvalue()
+
+
+# Foto vere (per gli allegati): la lettura finta le riconosce come le distinte di prova.
+FOTO = {"casa.jpg": _jpeg("white"), "ospite.jpg": _jpeg("lightgray")}
+
+
 def finta_lettura(dati: bytes, content_type: str) -> Distinta:
     if dati == b"rotta":
         raise main.LetturaFallita("foto illeggibile")
-    return LETTURE[dati.decode()].model_copy(deep=True)
+    chiave = next((nome for nome, contenuto in FOTO.items() if contenuto == dati), None) or dati.decode()
+    return LETTURE[chiave].model_copy(deep=True)
 
 
 @pytest.fixture(scope="module")
@@ -269,3 +283,40 @@ def test_senza_rapportino_niente_sostituzioni(page):
     page.click("#prosegui")
     page.locator("#revisione").wait_for()
     assert page.locator("#box-sostituzioni").is_hidden()
+
+
+def test_allegati_dalla_pagina(page):
+    carica(page, "casa", "casa.jpg", FOTO["casa.jpg"])
+    carica(page, "ospite", "ospite.jpg", FOTO["ospite.jpg"])
+    carica(page, "rapportino", "rapportino.jpg", _jpeg("whitesmoke"))
+    page.click("#prosegui")
+    page.locator("#revisione").wait_for()
+    assert page.locator("#allega").is_checked()                     # di norma si allega
+    page.fill("#gara", "tezze brendola")
+    domande = []
+    page.once("dialog", lambda d: (domande.append(d.message), d.accept()))
+    page.click("#avvia")
+    page.locator("#esito-finale .ok").wait_for(timeout=120_000)
+    assert "Poi verranno allegati: distinta di casa, distinta ospite, rapportino." in domande[0]
+    assert page.locator("#esiti-allegati .esito").all_inner_texts() == ["Caricato"] * 3
+    assert page.locator("#box-allegati").is_visible()
+    assert "allegati non caricati" not in page.locator("#esito-finale").inner_text()
+    assert [(a["tipo"], a["squadra"]) for a in portale_finto.ALLEGATI_CARICATI] == [("1", "1001"), ("1", "2001"), ("3", "0")]
+    assert "Allegati: 3 caricati, 0 già presenti, 0 con errori." in page.locator("#passi").inner_text()
+
+
+def test_senza_allega_niente_allegati(page):
+    carica(page, "casa", "casa.jpg", FOTO["casa.jpg"])
+    carica(page, "ospite", "ospite.jpg", FOTO["ospite.jpg"])
+    page.click("#prosegui")
+    page.locator("#revisione").wait_for()
+    page.uncheck("#allega")
+    page.fill("#gara", "tezze brendola")
+    domande = []
+    page.once("dialog", lambda d: (domande.append(d.message), d.accept()))
+    page.click("#avvia")
+    page.locator("#esito-finale .ok").wait_for(timeout=120_000)
+    assert "allegati" not in domande[0]
+    assert portale_finto.ALLEGATI_CARICATI == []
+    assert page.locator("#box-allegati").is_hidden()
+    assert "Allegati" not in page.locator("#passi").inner_text()

@@ -2,7 +2,7 @@
 
 Agente per ridurre il lavoro manuale nella compilazione del referto arbitrale su Sinfonia4You.
 
-Il programma fa tre cose:
+Il programma fa quattro cose:
 
 1. **Lettura delle distinte.** Nella pagina web si carica la foto o il PDF della distinta della
    squadra di casa (a sinistra) e di quella ospite (a destra), poi **Prosegui**. Per ogni
@@ -42,6 +42,20 @@ Il programma fa tre cose:
    (la scheda si chiama «Sostituzioni *»). Per vedere i dati veri apri il referto in una finestra
    anonima, oppure cancella i dati del sito servizi.aia-figc.it. Non premere «Salva» in una finestra
    che mostra le righe vuote: sovrascriveresti le sostituzioni salvate.
+4. **Allegati.** Con la casella «Allega le distinte e il rapportino» (attiva di norma), alla fine
+   della compilazione i file caricati nella prima schermata vengono allegati nella scheda
+   **Allegati** del referto: le due distinte come «LISTA CALCIATORI» della loro squadra e il
+   rapportino come «MODULO AMMONITI/ESPULSI».
+   - Il portale accetta pdf, jpg e png fino a 1 MB e consiglia JPEG o PNG: ogni file (foto o PDF)
+     viene trasformato in un JPEG sotto 1 MB, raddrizzato se la foto è ruotata.
+   - La squadra si riconosce dal nome, non dalla posizione nella tendina. Se non è riconoscibile con
+     certezza, la distinta non viene allegata e la pagina lo segnala.
+   - Il caricamento salva subito sul portale (senza «Salva»): gli allegati già presenti nel referto,
+     stesso tipo e stessa squadra, non vengono ricaricati, così rifare la compilazione non crea
+     doppioni. Se c'è già una distinta di cui non si riconosce la squadra, il programma non allega
+     alla cieca e chiede di controllare.
+   - È riuscito solo ciò che il portale conferma (risposta con «Error» = 0). Nella pagina, il riquadro
+     «Allegati» dice per ogni file: caricato, già presente o errore (con il motivo).
 
 Regole della compilazione (`app/sinfonia.py`):
 

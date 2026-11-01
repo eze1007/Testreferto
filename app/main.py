@@ -1,5 +1,7 @@
 """Pannello web privato: carica le distinte, rivedi i dati, compila Sinfonia4You."""
 
+import base64
+import binascii
 import os
 import secrets
 import threading
@@ -95,11 +97,34 @@ def verifica_sostituzioni(squadre: dict[str, SquadraDaControllare]) -> dict:
 PREPARA_PAGINA: Callable[[Page], None] | None = None
 
 
+class FileAllegato(BaseModel):
+    nome: str = ""
+    tipo: str = ""   # tipo del file indicato dal browser, es. image/jpeg
+    dati: str        # contenuto in base64
+
+
 class RichiestaCompilazione(BaseModel):
     gara: str
     casa: Distinta | None = None
     ospite: Distinta | None = None
     sostituzioni: dict[str, list[Sostituzione]] = {}
+    # File caricati nella prima schermata da allegare al referto: "casa", "ospite", "rapportino".
+    allegati: dict[str, FileAllegato] = {}
+
+
+def _file_allegati(allegati: dict[str, FileAllegato]) -> dict[str, tuple[bytes, str]]:
+    file = {}
+    for chiave, f in allegati.items():
+        if chiave not in ("casa", "ospite", "rapportino"):
+            continue
+        try:
+            dati = base64.b64decode(f.dati, validate=True)
+        except (ValueError, binascii.Error):
+            raise HTTPException(422, f"Allegato «{chiave}» non valido.")
+        if len(dati) > MAX_UPLOAD:
+            raise HTTPException(413, f"Allegato «{chiave}» troppo grande (max 20 MB).")
+        file[chiave] = (dati, f.tipo)
+    return file
 
 
 @dataclass
@@ -109,6 +134,7 @@ class Lavoro:
     esiti: dict[str, list[dict]] = field(default_factory=lambda: {"casa": [], "ospite": []})
     sostituzioni: dict[str, list[dict]] = field(default_factory=lambda: {"casa": [], "ospite": []})
     verifica: list[str] | None = None  # controllo delle sostituzioni sul portale dopo il salvataggio
+    allegati: list[dict] = field(default_factory=list)
     avvisi: dict[str, list[str]] = field(default_factory=dict)
     bottone: str | None = None
     errore: str | None = None
@@ -130,7 +156,8 @@ def _esito_sostituzione(e: EsitoSostituzione) -> dict:
 
 
 def _esegui(lavoro: Lavoro, squadre: dict[str, Distinta], gara: str, utente: str, password: str,
-            sostituzioni: dict[str, list[Sostituzione]] | None = None) -> None:
+            sostituzioni: dict[str, list[Sostituzione]] | None = None,
+            allegati: dict[str, tuple[bytes, str]] | None = None) -> None:
     try:
         r = compilazione.compila(
             squadre, gara, utente, password,
@@ -141,6 +168,9 @@ def _esegui(lavoro: Lavoro, squadre: dict[str, Distinta], gara: str, utente: str
             prepara_pagina=PREPARA_PAGINA,
             sostituzioni=sostituzioni,
             alla_sostituzione=lambda lato, e: lavoro.sostituzioni[lato].append(_esito_sostituzione(e)),
+            allegati=allegati,
+            all_allegato=lambda e: lavoro.allegati.append(
+                {"descrizione": e.descrizione, "stato": e.stato, "dettaglio": e.dettaglio}),
         )
         lavoro.avvisi = {lato: rep.avvisi for lato, rep in r.report.items()}
         lavoro.verifica = r.verifica
@@ -160,12 +190,13 @@ def avvia_compilazione(richiesta: RichiestaCompilazione) -> dict:
     squadre = {lato: d for lato in ("casa", "ospite") if (d := getattr(richiesta, lato))}
     if not squadre or not richiesta.gara.strip():
         raise HTTPException(422, "Servono la gara e almeno una squadra.")
+    allegati = _file_allegati(richiesta.allegati)
     if not _un_lavoro_alla_volta.acquire(blocking=False):
         raise HTTPException(409, "C'è già una compilazione in corso.")
     id_lavoro = uuid.uuid4().hex
     _lavori[id_lavoro] = lavoro = Lavoro()
     sostituzioni = {lato: s for lato, s in richiesta.sostituzioni.items() if lato in ("casa", "ospite")}
-    threading.Thread(target=_esegui, args=(lavoro, squadre, richiesta.gara, utente, password, sostituzioni),
+    threading.Thread(target=_esegui, args=(lavoro, squadre, richiesta.gara, utente, password, sostituzioni, allegati),
                      daemon=True).start()
     return {"id": id_lavoro}
 
@@ -179,7 +210,7 @@ def _lavoro(id_lavoro: str) -> Lavoro:
 @app.get("/api/compila/{id_lavoro}", dependencies=[Depends(autenticato)])
 def stato_compilazione(id_lavoro: str) -> dict:
     l = _lavoro(id_lavoro)
-    return {"stato": l.stato, "messaggi": l.messaggi, "esiti": l.esiti, "sostituzioni": l.sostituzioni, "verifica": l.verifica, "avvisi": l.avvisi,
+    return {"stato": l.stato, "messaggi": l.messaggi, "esiti": l.esiti, "sostituzioni": l.sostituzioni, "verifica": l.verifica, "allegati": l.allegati, "avvisi": l.avvisi,
             "bottone": l.bottone, "errore": l.errore, "screenshot": l.screenshot is not None}
 
 

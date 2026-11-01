@@ -14,6 +14,7 @@ salvataggio delle Liste Gara, perché le tendine ESCE/ENTRA si basano sulle list
 """
 
 import itertools
+import json
 import re
 import unicodedata
 from collections.abc import Callable
@@ -22,6 +23,7 @@ from pathlib import Path
 
 from playwright.sync_api import Locator, Page
 
+from .allegati import Allegato, EsitoAllegato
 from .checks import completa, ordine_cronologico
 from .schema import Giocatore, Sostituzione
 
@@ -37,6 +39,19 @@ def compatta(testo: str) -> str:
     """Solo le lettere, in maiuscolo e senza accenti: NICOLO' = NICOLÒ, D'ANGELO = D ANGELO = DANGELO."""
     senza_accenti = "".join(c for c in unicodedata.normalize("NFKD", testo) if not unicodedata.combining(c))
     return "".join(c for c in senza_accenti.upper() if c.isalpha())
+
+
+# Parole che non distinguono una squadra dall'altra (forme societarie, «CALCIO»...).
+PAROLE_GENERICHE = {"CALCIO", "ASD", "SSD", "USD", "ASDC", "AC", "AS", "SS", "US", "FC", "SC", "CF", "GS", "GSD",
+                    "POL", "POLISPORTIVA", "ARL", "SRL", "SSDARL", "ASSOCIAZIONE", "SPORTIVA", "SPORTIVO",
+                    "DILETTANTISTICA", "SOCIETA", "CLUB"}
+
+
+def parole_distintive(testo: str) -> set[str]:
+    """Le parole di un nome di squadra, in maiuscolo e senza accenti, tolte quelle generiche:
+    «A.S.D. GAZZOLO 2014» -> {"GAZZOLO"}, «CALCIO TEZZE» -> {"TEZZE"}."""
+    senza_accenti = "".join(c for c in unicodedata.normalize("NFKD", testo) if not unicodedata.combining(c))
+    return {p for p in re.findall(r"[A-Z]+", senza_accenti.upper()) if len(p) > 1 and p not in PAROLE_GENERICHE}
 
 
 @dataclass
@@ -761,6 +776,165 @@ class Sinfonia:
                 esiti[i] = EsitoSostituzione(s, "errore", str(e).splitlines()[0])
         self.istantanea(f"sostituzioni-{lato}")
         return [esiti[i] for i in range(len(sostituzioni))]
+
+    # --- allegati ---------------------------------------------------------------------------
+
+    def ha_scheda(self, ancora: str) -> bool:
+        return self.page.locator(f"a[href='#{ancora}']").count() > 0
+
+    def _nomi_squadre(self) -> dict[str, str]:
+        """Nomi delle squadre come li scrive il referto (intestazioni della scheda Sostituzioni)."""
+        return self.page.evaluate(
+            """() => ({casa: (document.querySelector('#Squadra_Sostituzioni_Casa')?.textContent || '').trim(),
+                       ospite: (document.querySelector('#Squadra_Sostituzioni_Fuori')?.textContent || '').trim()})""")
+
+    @staticmethod
+    def lato_da_nome(testo: str, nomi: dict[str, str]) -> str | None:
+        """"casa" o "ospite" se `testo` corrisponde al nome di una sola delle due squadre (stesse
+        lettere, oppure uno contenuto nell'altro: «LONIGO» = «ASD LONIGO»); altrimenti None."""
+        c = compatta(testo)
+        if not c:
+            return None
+        nomi_c = {lato: compatta(n) for lato, n in nomi.items() if compatta(n)}
+        uguali = [lato for lato, n in nomi_c.items() if n == c]
+        if len(uguali) == 1:
+            return uguali[0]
+        simili = [lato for lato, n in nomi_c.items() if n in c or c in n]
+        return simili[0] if len(simili) == 1 else None
+
+    def _allegati_presenti(self, nomi: dict[str, str]) -> list[tuple[int, str | None]]:
+        """(tipo, squadra) degli allegati già caricati nel referto: le righe senza il campo del file.
+        Se nella riga c'è la tendina conta solo il suo valore (il testo della riga contiene anche
+        tutte le voci delle tendine); il testo si usa solo se la tendina manca. Squadra None = non
+        riconosciuta."""
+        righe = self.page.evaluate(
+            """() => [...document.querySelectorAll('#riepilogo_allegati_referto > tr')]
+                 .filter((tr) => !tr.querySelector('input.file_allegato'))
+                 .map((tr) => {
+                   const tipo = tr.querySelector('select[name=tipo]'), sq = tr.querySelector('select[name=squadra]');
+                   // Testo delle celle senza tendine e senza bottoni (il nome del file non conta).
+                   const testo = [...tr.querySelectorAll('td')].filter((td) => !td.querySelector('select'))
+                     .map((td) => { const c = td.cloneNode(true); c.querySelectorAll('button, a').forEach((b) => b.remove());
+                                    return c.textContent || ''; }).join(' ');
+                   return {tipo: tipo ? tipo.value : null,
+                           squadra: sq ? (sq.selectedIndex >= 0 && sq.value !== '0' ? sq.options[sq.selectedIndex].text.trim() : '') : null,
+                           testo};
+                 })""")
+        presenti = []
+        for r in righe:
+            if r["tipo"] is not None:  # c'è la tendina del tipo
+                if not (r["tipo"].isdigit() and r["tipo"] != "0"):
+                    continue
+                tipo = int(r["tipo"])
+            elif re.search(r"LISTA\s+CALCIATORI", r["testo"], re.I):
+                tipo = 1
+            elif re.search(r"AMMONITI", r["testo"], re.I):
+                tipo = 3
+            else:
+                continue
+            if r["squadra"] is not None:  # c'è la tendina della squadra
+                lato = self.lato_da_nome(r["squadra"], nomi) if r["squadra"] else None
+            else:  # niente tendina: si cercano nel testo della riga le parole del nome di una squadra
+                parole = parole_distintive(r["testo"])
+                trovati = [l for l, n in nomi.items() if parole_distintive(n) & parole]
+                lato = trovati[0] if len(trovati) == 1 else None
+            presenti.append((tipo, lato))
+        return presenti
+
+    def _valore_squadra(self, opzioni: list[list[str]], lato: str, nomi: dict[str, str]) -> str:
+        """La voce della tendina «squadra» per la squadra di casa o ospite, riconosciuta dal nome.
+        Solo se il referto non mostra i nomi si va per posizione (prima la casa)."""
+        valide = [(v, t) for v, t in opzioni if v not in ("", "0")]
+        trovate = [v for v, t in valide if self.lato_da_nome(t, nomi) == lato]
+        if len(trovate) == 1:
+            return trovate[0]
+        if not any(nomi.values()) and len(valide) == 2:
+            return valide[0 if lato == "casa" else 1][0]
+        raise RuntimeError("squadra non riconosciuta tra le voci del portale: "
+                           + (", ".join(t for _, t in valide) or "nessuna"))
+
+    def _carica_allegato(self, a: Allegato, nomi: dict[str, str]) -> EsitoAllegato:
+        """Una riga della scheda Allegati: tipo, squadra, file e «ALLEGA». Il portale salva subito e
+        risponde con un JSON: è riuscito solo se Error vale 0."""
+        corpo = self.page.locator("#riepilogo_allegati_referto > tr")
+        pendenti = corpo.filter(has=self.page.locator("input.file_allegato"))
+        if not pendenti.count():  # riga nuova («Aggiungi Allegato»); una rimasta vuota si riusa
+            self.page.locator("#btn_addallegato").first.click()
+            pendenti.first.wait_for(timeout=10_000)
+        pendenti.first.evaluate("(tr, chiave) => tr.setAttribute('data-s4y-allegato', chiave)", a.chiave)
+        riga = self.page.locator(f"#riepilogo_allegati_referto > tr[data-s4y-allegato='{a.chiave}']").last
+
+        prima = len(self.messaggi_portale)
+        riga.locator("select[name=tipo]").select_option(str(a.tipo))
+        if a.squadra:
+            tendina = riga.locator("select[name=squadra]")
+            opzioni = tendina.evaluate("(s) => [...s.options].map((o) => [o.value, o.text.trim()])")
+            tendina.select_option(self._valore_squadra(opzioni, a.squadra, nomi))
+        riga.locator("input.file_allegato").set_input_files(
+            {"name": a.nome_file, "mimeType": "image/jpeg", "buffer": a.dati})
+
+        inviate = []
+
+        def registra(r) -> None:
+            if r.method == "POST" and "upload.asp" in r.url.lower():
+                inviate.append(r)
+
+        self.page.on("request", registra)
+        try:
+            riga.locator("button.carica_allegato").click()
+            for _ in range(150):  # fino a 30 secondi perché parta il caricamento
+                if inviate or len(self.messaggi_portale) > prima:
+                    break
+                self.page.wait_for_timeout(200)
+        finally:
+            self.page.remove_listener("request", registra)
+        if not inviate:  # il portale ha rifiutato prima di inviare (di solito con un avviso)
+            return EsitoAllegato(a.descrizione, "errore",
+                                 " ".join(self.messaggi_portale[prima:]) or "il portale non ha inviato il file")
+        risposta = inviate[0].response()  # aspetta la risposta del portale
+        if risposta is None or risposta.status >= 400:
+            return EsitoAllegato(a.descrizione, "errore",
+                                 f"caricamento non riuscito (risposta {risposta.status if risposta else 'assente'})")
+        testo = risposta.text().strip().lstrip("\ufeff")
+        try:
+            esito = json.loads(testo)
+            codice = int(str(esito.get("Error")).strip())
+        except (ValueError, TypeError, AttributeError):
+            return EsitoAllegato(a.descrizione, "errore", f"risposta del portale non valida: {testo[:150]}")
+        if codice != 0:
+            return EsitoAllegato(a.descrizione, "errore", str(esito.get("Message") or testo[:150]))
+        return EsitoAllegato(a.descrizione, "caricato", str(esito.get("Message") or ""))
+
+    def carica_allegati(self, allegati: list[Allegato],
+                        al_allegato: Callable[[EsitoAllegato], None] | None = None) -> list[EsitoAllegato]:
+        """Scheda Allegati: carica ogni file che non c'è già (stesso tipo e stessa squadra). Il
+        caricamento salva subito sul portale, senza «Salva»: ricaricare vorrebbe dire doppioni."""
+        self.apri_scheda("tabs-Allegati")
+        self.page.locator("#riepilogo_allegati_referto").wait_for(state="attached")
+        nomi = self._nomi_squadre()
+        presenti = self._allegati_presenti(nomi)
+        esiti = []
+        for a in allegati:
+            if any(tipo == a.tipo and (a.squadra is None or lato == a.squadra) for tipo, lato in presenti):
+                esito = EsitoAllegato(a.descrizione, "gia_presente", "già allegato nel referto: non ricaricato")
+            elif a.squadra and (a.tipo, None) in presenti:
+                # Una distinta già allegata di cui non si capisce la squadra: potrebbe essere proprio
+                # questa. Meglio non caricare alla cieca (doppione o squadra sbagliata).
+                esito = EsitoAllegato(a.descrizione, "errore",
+                                      "nel referto c'è già una distinta di cui non riconosco la squadra: "
+                                      "controlla la scheda Allegati e, se manca, allegala a mano")
+            else:
+                try:
+                    esito = self._carica_allegato(a, nomi)
+                except Exception as e:  # un allegato sbagliato non deve fermare gli altri
+                    esito = EsitoAllegato(a.descrizione, "errore", str(e).splitlines()[0] if str(e) else type(e).__name__)
+                if esito.stato == "caricato":
+                    presenti.append((a.tipo, a.squadra))
+            esiti.append(esito)
+            if al_allegato:
+                al_allegato(esito)
+        self.istantanea("allegati")
+        return esiti
 
     def _compila_riga(self, g: Giocatore, riga, lato: str, aggiunto: bool = False) -> Esito:
         try:
