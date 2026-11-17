@@ -38,6 +38,8 @@
   .drop img { max-width:100%; max-height:260px; border-radius:6px; }
   .drop .icona { font-size:34px; line-height:1; }
   .nome-file { font-size:13px; color:var(--text); word-break:break-all; }
+  .tieni { display:flex; align-items:flex-start; gap:8px; margin-top:10px; font-size:14px; color:var(--text); cursor:pointer; }
+  .tieni input { flex:none; width:18px; height:18px; margin:1px 0 0; }
   .rimuovi { margin-top:8px; background:none; border:0; color:var(--muted); text-decoration:underline; cursor:pointer; font:inherit; font-size:13px; }
 
   .azioni { display:flex; justify-content:flex-end; gap:10px; margin-top:16px; flex-wrap:wrap; }
@@ -158,6 +160,7 @@
           <div class="vuoto-drop"><div class="icona">📄</div><div>Tocca per scattare o scegliere<br>la foto o il PDF della distinta</div></div>
           <div class="anteprima" hidden></div>
         </div>
+        <label class="tieni" hidden><input type="checkbox" checked> <span>Tieni i giocatori già letti (non rileggere la nuova foto)</span></label>
         <button class="rimuovi" hidden>Rimuovi</button>
       </div>
       <div class="card ospite" data-lato="ospite">
@@ -167,6 +170,7 @@
           <div class="vuoto-drop"><div class="icona">📄</div><div>Tocca per scattare o scegliere<br>la foto o il PDF della distinta</div></div>
           <div class="anteprima" hidden></div>
         </div>
+        <label class="tieni" hidden><input type="checkbox" checked> <span>Tieni i giocatori già letti (non rileggere la nuova foto)</span></label>
         <button class="rimuovi" hidden>Rimuovi</button>
       </div>
     </div>
@@ -177,6 +181,7 @@
         <div class="vuoto-drop"><div class="icona">📝</div><div>Tocca per scattare o scegliere<br>la foto del rapportino</div></div>
         <div class="anteprima" hidden></div>
       </div>
+      <label class="tieni" hidden><input type="checkbox" checked> <span>Tieni le sostituzioni già lette (non rileggere la nuova foto)</span></label>
       <button class="rimuovi" hidden>Rimuovi</button>
     </div>
     <div class="card fasi">
@@ -250,18 +255,32 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"
 // --- Schermata 1 -------------------------------------------------------------------------
 
 for (const card of document.querySelectorAll("#caricamento .card[data-lato]")) {  // le caselle dei file
-  const lato = card.dataset.lato, drop = $(".drop", card), input = $("input", card);
+  const lato = card.dataset.lato, drop = $(".drop", card), input = $(".drop input", card);
   input.addEventListener("change", () => imposta(lato, input.files[0] || null));
   drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("sopra"); });
   drop.addEventListener("dragleave", () => drop.classList.remove("sopra"));
   drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("sopra"); imposta(lato, e.dataTransfer.files[0] || null); });
   $(".rimuovi", card).addEventListener("click", () => { input.value = ""; imposta(lato, null); });
+  // Tolta la spunta: la nuova foto verrà riletta; rimessa: si torna alla lettura precedente.
+  $(".tieni input", card).addEventListener("change", (e) => {
+    dati[lato] = e.target.checked ? lettiPrima[lato] : null;
+    aggiornaProsegui();
+  });
 }
 
+// Lettura già fatta (con le correzioni a mano) quando si cambia la foto: si può tenere senza rileggere.
+const lettiPrima = { casa: null, ospite: null, rapportino: null };
+
 function imposta(lato, f) {
-  file[lato] = f;
-  dati[lato] = null;  // un file nuovo va riletto
   const card = $(`#caricamento .card[data-lato=${lato}]`), anteprima = $(".anteprima", card);
+  // Foto nuova al posto di una già letta bene (es. rifatta solo per aggiungere una X): di norma si
+  // tengono i giocatori letti, senza spendere un'altra lettura. Con la spunta tolta, si rilegge.
+  const giaLetta = f && file[lato] && dati[lato] && !dati[lato].errore ? dati[lato] : null;
+  file[lato] = f;
+  lettiPrima[lato] = giaLetta;
+  dati[lato] = giaLetta;
+  $(".tieni", card).hidden = !giaLetta;
+  $(".tieni input", card).checked = true;
   $(".vuoto-drop", card).hidden = !!f;
   anteprima.hidden = !f;
   $(".rimuovi", card).hidden = !f;

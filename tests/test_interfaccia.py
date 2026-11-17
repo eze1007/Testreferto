@@ -393,3 +393,41 @@ def test_solo_sostituzioni(page):
     assert page.locator("#esiti-ospite .esiti-sost .esito").all_inner_texts() == ["Inserita"]
     assert "Verifica sul portale: tutte le sostituzioni inserite risultano salvate." in passi
     assert page.locator("#box-allegati").is_hidden()
+
+
+def test_foto_cambiata_senza_rileggere(page):
+    """La foto rifatta (es. per aggiungere una X) si usa per gli allegati, ma i giocatori già letti e
+    corretti restano: nessuna nuova lettura, salvo togliere la spunta."""
+    LETTURE_FATTE.clear()
+    carica(page, "casa", "casa.jpg", b"casa.jpg")
+    carica(page, "ospite", "ospite.jpg", b"ospite.jpg")
+    carica(page, "rapportino", "rapportino.jpg", b"rapportino")
+    assert page.locator(".tieni:visible").count() == 0              # prima foto: niente da tenere
+    page.click("#prosegui")
+    page.locator("#revisione").wait_for()
+    assert sorted(LETTURE_FATTE) == ["distinta", "distinta", "rapportino"]
+    campo = page.locator("#tabella-casa input[data-k=cognome]").first
+    campo.fill("ROSSINI")                                           # correzione a mano
+    campo.dispatch_event("change")
+    page.locator("#sost-casa .togli").first.click()                 # e una sostituzione tolta
+    page.click("#indietro")
+
+    carica(page, "casa", "casa-con-x.jpg", b"casa.jpg")             # foto rifatta
+    carica(page, "rapportino", "rapportino-2.jpg", b"rapportino")
+    tieni = page.locator(".card[data-lato=casa] .tieni")
+    assert tieni.is_visible() and tieni.locator("input").is_checked()
+    assert page.locator(".card[data-lato=rapportino] .tieni input").is_checked()
+    assert page.locator(".card[data-lato=ospite] .tieni").is_hidden()   # foto non cambiata
+    page.click("#prosegui")
+    page.locator("#revisione").wait_for()
+    assert len(LETTURE_FATTE) == 3                                  # nessuna nuova lettura
+    assert page.locator("#tabella-casa input[data-k=cognome]").first.input_value() == "ROSSINI"
+    assert page.locator("#sost-casa tr[data-i]").count() == 1       # la sostituzione tolta resta tolta
+    assert page.locator(".card[data-lato=casa] .nome-file").inner_text() == "casa-con-x.jpg"
+
+    page.click("#indietro")
+    tieni.locator("input").uncheck()                                # ora si vuole rileggere
+    page.click("#prosegui")
+    page.locator("#revisione").wait_for()
+    assert len(LETTURE_FATTE) == 4 and LETTURE_FATTE[-1] == "distinta"
+    assert page.locator("#tabella-casa input[data-k=cognome]").first.input_value() == "ROSSI"

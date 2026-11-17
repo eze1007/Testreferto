@@ -6,7 +6,10 @@ Il programma fa quattro cose. Nella prima schermata, nel riquadro **«Cosa deve 
 programma»**, si sceglie quali fare (di norma tutte): **Liste Gara** (servono le due distinte),
 **Sostituzioni** (serve il rapportino) e **Allegati** (serve almeno un file). Così si può rifare solo
 una parte, per esempio solo gli allegati o solo le sostituzioni, senza ricompilare le liste. Si leggono
-solo i file che servono: per gli allegati nessuno, per le sostituzioni solo il rapportino. Le
+solo i file che servono: per gli allegati nessuno, per le sostituzioni solo il rapportino. Se si
+cambia la foto di un file già letto (es. rifatta per aggiungere una X), di norma si tengono i
+giocatori e le sostituzioni già letti, con le correzioni fatte a mano, e la nuova foto serve solo per
+gli allegati: nessuna nuova lettura. Togliendo la spunta «Tieni…» sotto la foto, la si rilegge. Le
 sostituzioni si basano sulle Liste Gara già salvate nel referto.
 
 
